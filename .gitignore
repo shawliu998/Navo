@@ -1,0 +1,19 @@
+node_modules/
+.next/
+dist/
+coverage/
+playwright-report/
+test-results/
+.turbo/
+*.tsbuildinfo
+.DS_Store
+
+# Secrets — never commit local credentials
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Local runtime data
+.data/
+uploads/

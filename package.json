@@ -1,0 +1,23 @@
+{
+  "name": "navo",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "e2e": "pnpm --filter @exportplay/web e2e",
+    "db:generate": "pnpm --filter @exportplay/db db:generate",
+    "db:migrate": "pnpm --filter @exportplay/db db:migrate",
+    "db:seed": "pnpm --filter @exportplay/db db:seed",
+    "db:studio": "pnpm --filter @exportplay/db db:studio"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.5",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

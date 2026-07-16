@@ -1,0 +1,32 @@
+{
+  "name": "@exportplay/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": { "dev": "next dev --port 3100", "build": "next build", "start": "next start --port 3100", "lint": "eslint .", "typecheck": "tsc --noEmit", "test": "vitest run --passWithNoTests --exclude 'e2e/**'", "e2e": "playwright test" },
+  "dependencies": {
+    "@exportplay/agents": "workspace:*",
+    "@exportplay/db": "workspace:*",
+    "@exportplay/domain": "workspace:*",
+    "@exportplay/ui": "workspace:*",
+    "@exportplay/workflows": "workspace:*",
+    "@tanstack/react-table": "^8.21.3",
+    "@xyflow/react": "^12.11.2",
+    "drizzle-orm": "^0.45.2",
+    "lucide-react": "^1.24.0",
+    "next": "^16.2.10",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "recharts": "^3.9.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^22.17.0",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "eslint": "^9.39.1",
+    "eslint-config-next": "^16.2.10",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

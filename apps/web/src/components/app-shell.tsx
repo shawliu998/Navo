@@ -1,0 +1,13 @@
+import Link from "next/link";
+import { Activity, BarChart3, BookOpen, Bot, Building2, ChevronDown, CircleHelp, ContactRound, GitBranch, Inbox, LayoutDashboard, Link2, ListChecks, ListTodo, MailOpen, MessageSquareText, PlaySquare, Settings, Sparkles, UsersRound } from "lucide-react";
+import { CommandMenu } from "./command-menu";
+
+const navGroups = [
+  { label: "首页", items: [["Overview","/app/overview",LayoutDashboard]] },
+  { label: "数据", items: [["Accounts","/app/accounts",Building2],["Contacts","/app/contacts",ContactRound],["Signals","/app/signals",Sparkles]] },
+  { label: "自动化", items: [["Plays","/app/plays",GitBranch],["Agents","/app/agents",Bot],["Sequences","/app/sequences",PlaySquare]] },
+  { label: "运营", items: [["Approvals","/app/approvals",ListChecks,"4"],["Runs","/app/runs",Activity],["Conversations","/app/conversations",MessageSquareText],["Tasks","/app/tasks",ListTodo],["EmailSink","/app/email-sink",MailOpen]] },
+  { label: "分析", items: [["Analytics","/app/analytics",BarChart3]] },
+  { label: "配置", items: [["Knowledge","/app/knowledge",BookOpen],["Integrations","/app/integrations",Link2]] },
+] as const;
+export function AppShell({children}:{children:React.ReactNode}){return <div className="app-shell"><aside className="sidebar"><Link href="/app/overview" className="brand"><span className="brand-mark">N</span><span>Navo</span></Link><button className="workspace-switcher" aria-label="切换 Workspace"><div style={{textAlign:"left"}}><strong>Nova Automation</strong><small>Owner workspace</small></div><span className="env-badge">Demo</span><ChevronDown size={13}/></button><nav className="nav" aria-label="主导航">{navGroups.map(group=><div key={group.label}><div className="nav-group">{group.label}</div>{group.items.map(([label,href,Icon,count])=><Link key={href} className="nav-link" href={href}><Icon/><span>{label}</span>{count&&<span className="nav-count">{count}</span>}</Link>)}</div>)}</nav><div className="sidebar-footer"><Link className="nav-link" href="/app/settings"><Settings/><span>Settings</span></Link><a className="nav-link" href="https://github.com/shawliu998/Navo" target="_blank"><CircleHelp/><span>Help</span></a><div className="user-card"><span className="avatar">刘</span><div><strong>刘晓岚</strong><small>Workspace Owner</small></div></div></div></aside><main className="app-main"><header className="topbar"><div className="breadcrumbs"><span>Nova Automation</span><span>/</span><strong style={{color:"var(--text)"}}>Navo</strong></div><div className="topbar-actions"><CommandMenu/><button className="icon-button" aria-label="通知"><Inbox size={16}/></button><button className="icon-button" aria-label="成员"><UsersRound size={16}/></button></div></header>{children}</main></div>}

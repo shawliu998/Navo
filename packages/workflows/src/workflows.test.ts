@@ -1,0 +1,3 @@
+import { describe, expect, it } from "vitest";
+import { nodeRegistry } from "./index";
+describe("node registry", () => { it("contains the outbound and reply-intelligence MVP node types", () => { expect(nodeRegistry).toHaveLength(26); expect(nodeRegistry.map((node) => node.type)).toEqual(expect.arrayContaining(["replyReceivedTrigger", "classifyReply", "summarizeConversation", "updateMemory", "proposeNextAction", "policyCheck", "generateReplyDraft"])); }); it("keeps production sending approval-aware", () => expect(nodeRegistry.find((node) => node.type === "enrollSequence")?.configurationSchema.safeParse({ testMode: true }).success).toBe(true)); });
