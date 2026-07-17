@@ -53,6 +53,130 @@ export const agentOutputs = simpleTenantTable("agent_outputs");
 export const toolCalls = simpleTenantTable("tool_calls");
 export const runScopes = simpleTenantTable("run_scopes");
 
+export const agentProfiles = pgTable("agent_profiles", {
+  ...tenantColumns(),
+  name: text("name").default("Navo Growth Agent").notNull(),
+  purpose: text("purpose").notNull(),
+  status: text("status").default("IDLE").notNull(),
+  operatingMode: text("operating_mode").default("APPROVAL_CONTROLLED").notNull(),
+  knowledgeHealth: integer("knowledge_health").default(0).notNull(),
+  connectedTools: jsonb("connected_tools").default([]).notNull(),
+  capabilities: jsonb("capabilities").default([]).notNull(),
+  currentActivity: text("current_activity"),
+  lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+}, (table) => [uniqueIndex("agent_profile_workspace_unique").on(table.workspaceId)]);
+
+export const agentMissions = pgTable("agent_missions", {
+  ...tenantColumns(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  objective: text("objective").notNull(),
+  desiredOutcome: text("desired_outcome"),
+  status: text("status").default("DRAFT").notNull(),
+  operatingMode: text("operating_mode").default("APPROVAL_CONTROLLED").notNull(),
+  playId: uuid("play_id"),
+  inputSource: text("input_source").default("DEMO_ACCOUNTS").notNull(),
+  approvalPolicy: text("approval_policy").default("REQUIRED_FOR_OUTBOUND").notNull(),
+  targetCount: integer("target_count").default(0).notNull(),
+  processedCount: integer("processed_count").default(0).notNull(),
+  qualifiedCount: integer("qualified_count").default(0).notNull(),
+  pendingApprovalCount: integer("pending_approval_count").default(0).notNull(),
+  progress: integer("progress").default(0).notNull(),
+  currentStep: text("current_step"),
+  agentSummary: text("agent_summary"),
+  maximumAccounts: integer("maximum_accounts"),
+  estimatedCostLimit: numeric("estimated_cost_limit", { precision: 10, scale: 2 }),
+  actualCost: numeric("actual_cost", { precision: 10, scale: 5 }).default("0").notNull(),
+  testMode: boolean("test_mode").default(true).notNull(),
+  stopConditions: jsonb("stop_conditions").default([]).notNull(),
+  targetCriteria: jsonb("target_criteria").default({}).notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  dueAt: timestamp("due_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+}, (table) => [index("agent_missions_workspace_status_idx").on(table.workspaceId, table.status, table.updatedAt)]);
+
+export const agentMissionTargets = pgTable("agent_mission_targets", {
+  ...tenantColumns(),
+  missionId: uuid("mission_id").notNull(),
+  accountId: uuid("account_id").notNull(),
+  runId: uuid("run_id"),
+  approvalId: uuid("approval_id"),
+  messageId: uuid("message_id"),
+  taskId: uuid("task_id"),
+  status: text("status").default("PENDING").notNull(),
+  priority: text("priority").default("MEDIUM").notNull(),
+  keySignal: text("key_signal"),
+  whySelected: text("why_selected"),
+  currentStep: text("current_step"),
+  suggestedAction: text("suggested_action"),
+  findingConfidence: numeric("finding_confidence", { precision: 4, scale: 3 }),
+  metadata: jsonb("metadata").default({}).notNull(),
+}, (table) => [
+  uniqueIndex("agent_mission_target_unique").on(table.workspaceId, table.missionId, table.accountId),
+  index("agent_mission_targets_status_idx").on(table.workspaceId, table.missionId, table.status),
+]);
+
+export const agentPlans = pgTable("agent_plans", {
+  ...tenantColumns(),
+  missionId: uuid("mission_id").notNull(),
+  title: text("title").notNull(),
+  status: text("status").default("DRAFT").notNull(),
+  version: integer("version").default(1).notNull(),
+  estimatedDurationMinutes: integer("estimated_duration_minutes"),
+  estimatedCost: numeric("estimated_cost", { precision: 10, scale: 5 }).default("0").notNull(),
+  summary: text("summary"),
+}, (table) => [uniqueIndex("agent_plan_mission_version_unique").on(table.workspaceId, table.missionId, table.version)]);
+
+export const agentPlanSteps = pgTable("agent_plan_steps", {
+  ...tenantColumns(),
+  missionId: uuid("mission_id").notNull(),
+  planId: uuid("plan_id").notNull(),
+  order: integer("order").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  status: text("status").default("PENDING").notNull(),
+  relatedRunId: uuid("related_run_id"),
+  relatedPlayNodeId: text("related_play_node_id"),
+  input: jsonb("input").default({}).notNull(),
+  output: jsonb("output").default({}).notNull(),
+  evidence: jsonb("evidence").default([]).notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  durationMs: integer("duration_ms"),
+  estimatedCost: numeric("estimated_cost", { precision: 10, scale: 5 }).default("0").notNull(),
+  errorCode: text("error_code"),
+  errorMessage: text("error_message"),
+}, (table) => [uniqueIndex("agent_plan_step_order_unique").on(table.workspaceId, table.planId, table.order)]);
+
+export const agentEvents = pgTable("agent_events", {
+  ...tenantColumns(),
+  missionId: uuid("mission_id"),
+  accountId: uuid("account_id"),
+  runId: uuid("run_id"),
+  approvalId: uuid("approval_id"),
+  messageId: uuid("message_id"),
+  taskId: uuid("task_id"),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  severity: text("severity").default("INFO").notNull(),
+  status: text("status").default("COMPLETED").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
+  metadata: jsonb("metadata").default({}).notNull(),
+}, (table) => [index("agent_events_workspace_occurred_idx").on(table.workspaceId, table.occurredAt)]);
+
+export const agentPreferences = pgTable("agent_preferences", {
+  ...tenantColumns(),
+  profileId: uuid("profile_id").notNull(),
+  operatingMode: text("operating_mode").default("APPROVAL_CONTROLLED").notNull(),
+  approvalPolicy: text("approval_policy").default("REQUIRED_FOR_OUTBOUND").notNull(),
+  dailySchedule: jsonb("daily_schedule").default({ timezone: "Asia/Shanghai", enabled: true }).notNull(),
+  testMode: boolean("test_mode").default(true).notNull(),
+  emailSinkEnabled: boolean("email_sink_enabled").default(true).notNull(),
+  maxDailyActions: integer("max_daily_actions").default(50).notNull(),
+}, (table) => [uniqueIndex("agent_preferences_workspace_unique").on(table.workspaceId)]);
+
 export const sequences = pgTable("sequences", { ...tenantColumns(), name: text("name").notNull(), status: text("status").default("DRAFT").notNull(), activeVersionId: uuid("active_version_id"), stepsCount: integer("steps_count").default(0).notNull(), enrolled: integer("enrolled").default(0).notNull(), sent: integer("sent").default(0).notNull(), replyRate: numeric("reply_rate", { precision: 5, scale: 2 }).default("0").notNull(), positiveReplyRate: numeric("positive_reply_rate", { precision: 5, scale: 2 }).default("0").notNull(), meetings: integer("meetings").default(0).notNull(), ownerName: text("owner_name") });
 export const sequenceVersions = simpleTenantTable("sequence_versions");
 export const sequenceSteps = pgTable("sequence_steps", { ...tenantColumns(), sequenceVersionId: uuid("sequence_version_id").notNull(), position: integer("position").notNull(), type: text("type").notNull(), config: jsonb("config").default({}).notNull() });

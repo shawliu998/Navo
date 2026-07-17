@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { AIProvider } from "@exportplay/agents";
-import { messageOutputSchema, qualificationOutputSchema, replyDraftOutputSchema } from "@exportplay/agents";
-import { classifyReply, deriveMemoryFacts, evaluateSendPolicy, proposeNextBestAction, qualifyAccount, redactSensitive, summarizeConversation } from "@exportplay/domain";
+import type { AIProvider } from "@navo/agents";
+import { messageOutputSchema, qualificationOutputSchema, replyDraftOutputSchema } from "@navo/agents";
+import { classifyReply, deriveMemoryFacts, evaluateSendPolicy, proposeNextBestAction, qualifyAccount, redactSensitive, summarizeConversation } from "@navo/domain";
 
 export type NodeDefinition = { type: string; category: string; label: string; description: string; inputPorts: string[]; outputPorts: string[]; configurationSchema: z.ZodType; runtimeInputSchema: z.ZodType; runtimeOutputSchema: z.ZodType };
 const anyInput = z.record(z.string(), z.unknown());

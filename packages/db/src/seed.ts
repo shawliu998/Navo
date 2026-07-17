@@ -1,6 +1,7 @@
 import { db, pool } from "./client";
 import {
-  accounts, approvals, approvedClaims, auditLogs, contacts, conversationSummaries, conversations, crmConnections,
+  accounts, agentEvents, agentMissionTargets, agentMissions, agentPlanSteps, agentPlans, agentPreferences, agentProfiles,
+  approvals, approvedClaims, auditLogs, contacts, conversationSummaries, conversations, crmConnections,
   crmEvents, evidence, icpProfiles, inferences, integrationConnections, memoryFacts, messageClassifications,
   messageEvents, messages, modelUsage, nextActionProposals, nodeRuns, opportunityMirrors, personas, playEdges,
   playNodes, playVersions, plays, products, qualificationResults, runs, sequenceSteps, sequenceVersions, sequences,
@@ -71,7 +72,7 @@ const replyGraph = {
 };
 
 await db.transaction(async (tx) => {
-  for (const table of [crmEvents, opportunityMirrors, crmConnections, tasks, nextActionProposals, memoryFacts, conversationSummaries, messageClassifications, messageEvents, modelUsage, auditLogs, approvals, messages, conversations, nodeRuns, runs, playEdges, playNodes, playVersions, plays, sequenceSteps, sequenceVersions, sequences, suppressionEntries, qualificationResults, inferences, evidence, signals, contacts, accounts, approvedClaims, personas, icpProfiles, products, integrationConnections, workspaceMembers, users, workspaces]) await tx.delete(table);
+  for (const table of [agentEvents, agentPlanSteps, agentPlans, agentMissionTargets, agentMissions, agentPreferences, agentProfiles, crmEvents, opportunityMirrors, crmConnections, tasks, nextActionProposals, memoryFacts, conversationSummaries, messageClassifications, messageEvents, modelUsage, auditLogs, approvals, messages, conversations, nodeRuns, runs, playEdges, playNodes, playVersions, plays, sequenceSteps, sequenceVersions, sequences, suppressionEntries, qualificationResults, inferences, evidence, signals, contacts, accounts, approvedClaims, personas, icpProfiles, products, integrationConnections, workspaceMembers, users, workspaces]) await tx.delete(table);
 
   await tx.insert(workspaces).values({ id: DEMO_WORKSPACE_ID, name: "Nova Automation", slug: "nova-automation", plan: "DEMO" });
   await tx.insert(users).values({ id: DEMO_USER_ID, email: "demo@navo.local", name: "刘晓岚", locale: "zh-CN" });
@@ -185,7 +186,74 @@ await db.transaction(async (tx) => {
   await tx.insert(crmEvents).values(actionRows.map((action, index) => ({ id: id(1670 + index), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, connectionId: id(1650), accountId: id(100 + index), opportunityMirrorId: index < 4 ? id(1660 + index) : null, eventType: index === 4 ? "CONTACT_SUPPRESSED" : "NEXT_ACTION_SYNCED", direction: "OUTBOUND", status: "SUCCEEDED", payload: { title: action.title }, occurredAt: daysAgo(index) })));
   await tx.insert(modelUsage).values(runRows.slice(0, 8).map((run, index) => ({ id: id(1700 + index), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, runId: run.id, provider: "mock-ai", model: "deterministic-v1", inputTokens: 800 + index * 45, outputTokens: 320 + index * 20, estimatedCost: (0.004 + index * .001).toFixed(5) })));
   await tx.insert(auditLogs).values(Array.from({ length: 8 }, (_, index) => ({ id: id(1800 + index), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, actorId: DEMO_USER_ID, actorName: index % 2 ? "陈薇" : "刘晓岚", action: ["ACCOUNT_IMPORTED", "PLAY_PUBLISHED", "RUN_STARTED", "APPROVAL_REVIEWED"][index % 4]!, resourceType: ["ACCOUNT", "PLAY", "RUN", "APPROVAL"][index % 4]!, resourceId: id(100 + index), requestId: `demo-request-${index + 1}`, summary: "Fictional demo audit event", metadata: { demo: true } })));
+
+  await tx.insert(agentProfiles).values({
+    id: id(1890), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, name: "Navo Growth Agent",
+    purpose: "Discover and activate high-fit overseas accounts for industrial exporters.", status: "RUNNING",
+    operatingMode: "APPROVAL_CONTROLLED", knowledgeHealth: 82,
+    connectedTools: ["Account Database", "Website Research", "Product Knowledge", "ICP", "Approved Claims", "EmailSink", "Playbooks", "CRM Mirror"],
+    capabilities: ["RESEARCH", "QUALIFICATION", "DRAFT", "APPROVAL_REQUEST", "SEQUENCE_ENROLLMENT", "REPLY_CLASSIFICATION", "MEMORY_UPDATE", "TASK_CREATION"],
+    currentActivity: "Extracting expansion and hiring signals", lastHeartbeatAt: now,
+  });
+  await tx.insert(agentPreferences).values({
+    id: id(1891), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, profileId: id(1890), operatingMode: "APPROVAL_CONTROLLED",
+    approvalPolicy: "REQUIRED_FOR_OUTBOUND", dailySchedule: { timezone: "Asia/Shanghai", enabled: true, start: "08:00", end: "18:00" },
+    testMode: true, emailSinkEnabled: true, maxDailyActions: 50,
+  });
+
+  const missionRows = [
+    { id: id(1900), name: "Find high-fit packaging and automotive component manufacturers in DACH", type: "EXPANSION_SIGNAL_OUTREACH", objective: "Identify 20 companies with automation expansion signals and prepare evidence-backed outreach for Quality or Manufacturing leaders.", desiredOutcome: "Five approved drafts and qualified follow-up opportunities.", status: "ACTIVE", operatingMode: "APPROVAL_CONTROLLED", playId: id(700), inputSource: "DEMO_ACCOUNTS", targetCount: 20, processedCount: 7, qualifiedCount: 4, pendingApprovalCount: 1, progress: 58, currentStep: "Extracting expansion and hiring signals", agentSummary: "Navo has researched seven targets, found four strong fits and is validating one low-confidence expansion signal.", maximumAccounts: 20, estimatedCostLimit: "1.00", actualCost: "0.03650", startedAt: daysAgo(2), dueAt: daysAgo(-5), completedAt: null },
+    { id: id(1901), name: "Prepare Quality Leader outreach for approved accounts", type: "TARGET_ACCOUNT_DISCOVERY", objective: "Prepare evidence-backed drafts for qualified Quality leaders.", desiredOutcome: "Approve and enroll three safe messages.", status: "WAITING", operatingMode: "APPROVAL_CONTROLLED", playId: id(700), inputSource: "EXISTING_ACCOUNTS", targetCount: 3, processedCount: 3, qualifiedCount: 3, pendingApprovalCount: 1, progress: 72, currentStep: "Waiting for message approval", agentSummary: "One outbound action needs a reviewer decision.", maximumAccounts: 3, estimatedCostLimit: "0.25", actualCost: "0.01800", startedAt: daysAgo(3), dueAt: daysAgo(-2), completedAt: null },
+    { id: id(1902), name: "Summarize positive replies and prepare follow-up", type: "REPLY_FOLLOW_UP", objective: "Turn recent positive replies into accountable next steps.", desiredOutcome: "Create owner-assigned follow-up tasks.", status: "COMPLETED", operatingMode: "RECOMMEND", playId: id(701), inputSource: "REPLIES", targetCount: 5, processedCount: 5, qualifiedCount: 1, pendingApprovalCount: 0, progress: 100, currentStep: "Mission completed", agentSummary: "Five replies were classified and a meeting follow-up task was created.", maximumAccounts: 5, estimatedCostLimit: "0.20", actualCost: "0.01200", startedAt: daysAgo(5), dueAt: daysAgo(1), completedAt: daysAgo(1) },
+    { id: id(1903), name: "Qualify autumn trade show account list", type: "TRADE_SHOW_LIST_QUALIFICATION", objective: "Research and prioritize the fictional autumn trade show list.", desiredOutcome: "Return a ranked account shortlist.", status: "DRAFT", operatingMode: "OBSERVE", playId: id(700), inputSource: "TRADE_SHOW_LIST", targetCount: 25, processedCount: 0, qualifiedCount: 0, pendingApprovalCount: 0, progress: 0, currentStep: "Plan ready for review", agentSummary: "Draft mission is ready for target and cost review.", maximumAccounts: 25, estimatedCostLimit: "1.25", actualCost: "0", startedAt: null, dueAt: daysAgo(-14), completedAt: null },
+    { id: id(1904), name: "Re-engage historical DACH inquiries", type: "HISTORICAL_INQUIRY_REACTIVATION", objective: "Reassess historical DACH inquiries against current evidence.", desiredOutcome: "Recommend safe reactivation candidates.", status: "PAUSED", operatingMode: "APPROVAL_CONTROLLED", playId: id(700), inputSource: "HISTORICAL_INQUIRIES", targetCount: 12, processedCount: 4, qualifiedCount: 2, pendingApprovalCount: 0, progress: 33, currentStep: "Paused by operator", agentSummary: "The operator paused this mission after four account reviews.", maximumAccounts: 12, estimatedCostLimit: "0.60", actualCost: "0.02100", startedAt: daysAgo(4), dueAt: daysAgo(-7), completedAt: null },
+  ];
+  await tx.insert(agentMissions).values(missionRows.map((mission) => ({ ...mission, workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, approvalPolicy: "REQUIRED_FOR_OUTBOUND", testMode: true, stopConditions: ["Stop on suppression conflict", "Never send without approval"], targetCriteria: { countries: ["Germany", "Austria", "Switzerland"], industries: ["Packaging", "Automotive Components"], persona: ["Quality Director", "Manufacturing Leader"] } })));
+
+  await tx.insert(agentPlans).values({ id: id(1910), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, missionId: id(1900), title: "DACH expansion-signal outreach plan", status: "ACTIVE", version: 1, estimatedDurationMinutes: 120, estimatedCost: "0.08000", summary: "Research, qualify and prepare approval-controlled outreach for evidence-backed opportunities." });
+  const missionPlanTitles = [
+    "Load Nova Automation product knowledge", "Load Industrial Automation ICP", "Select 20 target accounts", "Research company websites",
+    "Extract expansion and hiring signals", "Qualify accounts", "Select target personas", "Generate five outreach drafts",
+    "Request approval", "Enroll approved drafts in Test Sequence", "Process simulated reply", "Create follow-up task",
+  ];
+  const missionPlanStatuses = ["COMPLETED", "COMPLETED", "COMPLETED", "FAILED", "RUNNING", "PENDING", "PENDING", "PENDING", "PENDING", "PENDING", "PENDING", "PENDING"];
+  await tx.insert(agentPlanSteps).values(missionPlanTitles.map((title, index) => ({
+    id: id(1920 + index), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, missionId: id(1900), planId: id(1910), order: index + 1,
+    title, description: `Deterministic demo step ${index + 1} for the active DACH mission.`, status: missionPlanStatuses[index]!,
+    relatedRunId: index >= 3 && index <= 8 ? id(900 + Math.min(index - 3, 4)) : null,
+    relatedPlayNodeId: ["context", "icp", "target", "research", "signals", "qualify", "persona", "message", "approval", "enroll", "reply-trigger", "task"][index],
+    input: { testMode: true, accountScope: index >= 2 ? 20 : undefined },
+    output: index < 3 ? { completed: true } : index === 3 ? { completedAccounts: 7, retryable: true } : index === 4 ? { signalsFound: 6 } : {},
+    evidence: index === 4 ? [id(300), id(301), id(303)] : [], startedAt: index <= 4 ? daysAgo(2 - index * 0.08) : null,
+    completedAt: index < 3 ? daysAgo(1.8 - index * 0.08) : index === 3 ? daysAgo(1.5) : null, durationMs: index < 3 ? 3200 + index * 800 : index === 3 ? 45000 : null,
+    estimatedCost: index >= 3 && index <= 8 ? "0.00600" : "0", errorCode: index === 3 ? "MOCK_RESEARCH_TIMEOUT" : null,
+    errorMessage: index === 3 ? "One demo website timed out; the remaining accounts continued and the step can be retried." : null,
+  })));
+
+  await tx.insert(agentMissionTargets).values([
+    ...Array.from({ length: 10 }, (_, index) => ({ id: id(1940 + index), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, missionId: id(1900), accountId: id(100 + index), runId: index < 7 ? id(900 + index) : null, approvalId: index < 4 ? id(1400 + index) : null, messageId: index === 0 ? id(1150) : index < 8 ? id(1100 + index) : null, taskId: index < 5 ? id(1390 + index) : null, status: index < 4 ? "QUALIFIED" : index < 7 ? "RESEARCHED" : "PENDING", priority: index < 3 ? "HIGH" : "MEDIUM", keySignal: ["New production cell planned for Q4", "Hiring controls engineers", "New automated product line", "Factory footprint expansion"][index % 4]!, whySelected: index < 6 ? "Strong ICP fit with source-backed automation evidence." : "Included for comparative qualification.", currentStep: index < 4 ? "Approval review" : index < 7 ? "Signal validation" : "Queued for research", suggestedAction: index === 0 ? "Schedule discovery meeting" : index < 4 ? "Review outreach draft" : "Complete research", findingConfidence: index === 6 ? "0.420" : ["0.940", "0.880", "0.910", "0.780"][index % 4]!, metadata: index === 6 ? { lowConfidence: true, reason: "Only one accessible source" } : { demo: true } })),
+    { id: id(1950), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, missionId: id(1901), accountId: id(101), runId: id(901), approvalId: id(1401), messageId: id(1101), taskId: id(1391), status: "WAITING_APPROVAL", priority: "HIGH", keySignal: "Production capacity expansion", whySelected: "Strong fit and approved evidence are available.", currentStep: "Human approval", suggestedAction: "Review draft", findingConfidence: "0.920", metadata: { attention: true } },
+    { id: id(1951), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, missionId: id(1902), accountId: id(100), runId: id(907), messageId: id(1150), taskId: id(1390), status: "COMPLETED", priority: "HIGH", keySignal: "Positive reply", whySelected: "Contact proposed a meeting time.", currentStep: "Follow-up task created", suggestedAction: "Schedule discovery meeting", findingConfidence: "0.990", metadata: { replyClassification: "POSITIVE" } },
+    { id: id(1952), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, missionId: id(1903), accountId: id(110), status: "PENDING", priority: "MEDIUM", whySelected: "Demo trade show target awaiting research.", currentStep: "Draft", suggestedAction: "Start mission", metadata: { demo: true } },
+    { id: id(1953), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, missionId: id(1904), accountId: id(103), runId: id(903), status: "PAUSED", priority: "MEDIUM", keySignal: "Factory footprint expansion", whySelected: "Historical inquiry with renewed expansion evidence.", currentStep: "Paused", suggestedAction: "Resume when capacity is available", findingConfidence: "0.780", metadata: { pausedBy: "operator" } },
+  ]);
+
+  const eventTypes = ["MISSION_STARTED", "CONTEXT_LOADED", "ICP_LOADED", "TARGETS_SELECTED", "RESEARCH_STARTED", "ACCOUNT_RESEARCHED", "SIGNAL_FOUND", "ACCOUNT_QUALIFIED", "LOW_CONFIDENCE_FINDING", "STEP_FAILED", "STEP_RETRIED", "DRAFT_GENERATED", "APPROVAL_REQUESTED", "MISSION_WAITING", "APPROVAL_GRANTED", "SEQUENCE_ENROLLED", "REPLY_RECEIVED", "REPLY_CLASSIFIED", "MEMORY_UPDATED", "NEXT_ACTION_PROPOSED", "TASK_CREATED", "MISSION_PAUSED", "MISSION_RESUMED", "MISSION_PROGRESS", "MISSION_COMPLETED"];
+  const eventTitles = ["Navo started the DACH discovery mission.", "Loaded Nova Automation product knowledge.", "Loaded the Industrial Automation ICP.", "Selected 20 target accounts.", "Started website research.", "Researched Demo Rheinwerk Automation GmbH.", "Found an expansion signal.", "Qualified an account as Strong Fit.", "A finding needs evidence review.", "Website research step failed for one account.", "Continued research after a safe retry.", "Generated an evidence-backed outreach draft.", "Requested approval for an outreach message.", "Mission is waiting for human input.", "An outreach action was approved.", "Enrolled an approved draft in Test Sequence.", "Received a positive EmailSink reply.", "Classified the reply as Positive.", "Updated account memory from the reply.", "Proposed scheduling a discovery meeting.", "Created an owner-assigned follow-up task.", "Historical inquiry mission was paused.", "DACH discovery mission resumed.", "Seven of twenty targets have been researched.", "Reply follow-up mission completed."];
+  await tx.insert(agentEvents).values(eventTypes.map((type, index) => ({
+    id: id(2000 + index), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID,
+    missionId: index === 13 ? id(1901) : index >= 16 && index <= 20 || index === 24 ? id(1902) : index === 21 ? id(1904) : id(1900),
+    accountId: index >= 5 && index <= 12 ? id(100 + (index % 7)) : index >= 16 && index <= 20 ? id(100) : null,
+    runId: index >= 4 && index <= 12 ? id(900 + (index % 7)) : index >= 16 && index <= 20 ? id(907) : null,
+    approvalId: index === 12 || index === 13 || index === 14 ? id(1400) : null,
+    messageId: index >= 16 && index <= 20 ? id(1150) : index === 11 || index === 12 ? id(1100) : null,
+    taskId: index === 20 ? id(1390) : null, type, title: eventTitles[index]!,
+    description: index === 8 ? "Confidence is 0.42 because only one accessible source supports this finding." : index === 9 ? "Mock Research timed out for one fictional website; no external service was called." : undefined,
+    severity: index === 9 ? "ERROR" : index === 8 || index === 13 || index === 21 ? "WARNING" : [0, 7, 14, 16, 20, 24].includes(index) ? "SUCCESS" : "INFO",
+    status: index === 9 ? "FAILED" : index === 13 ? "WAITING" : "COMPLETED", occurredAt: new Date(now.getTime() - (25 - index) * 11 * 60_000),
+    metadata: index === 8 ? { confidence: 0.42, lowConfidence: true, evidenceId: id(306) } : index === 9 ? { retryable: true, errorCode: "MOCK_RESEARCH_TIMEOUT" } : { deterministic: true, testMode: true },
+  })));
 });
 
-console.log("Seeded Navo demo workspace: 12 accounts, 20 evidence, 10 signals, 10 contacts, 2 plays, 2 sequences, 15 runs, 30 node runs, 8 approvals, 12 outbound messages, 5 replies, 5 memory facts, 5 next actions and 6 tasks.");
+console.log("Seeded Navo demo workspace: 5 missions, 12 mission plan steps, 25 agent events, 14 mission targets, 12 accounts, 20 evidence, 10 signals, 10 contacts, 2 plays, 2 sequences, 15 runs, 30 node runs, 8 approvals, 12 outbound messages, 5 replies, 5 memory facts, 5 next actions and 6 tasks.");
 await pool.end();

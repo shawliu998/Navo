@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { dedupeAccountKey, normalizeDomain } from "@exportplay/domain";
-import { accounts, auditLogs, db, importJobs, importRows } from "@exportplay/db";
-import { DEMO_WORKSPACE_ID } from "@exportplay/db/queries";
+import { dedupeAccountKey, normalizeDomain } from "@navo/domain";
+import { accounts, auditLogs, db, importJobs, importRows } from "@navo/db";
+import { DEMO_WORKSPACE_ID } from "@navo/db/queries";
 import { apiError, requireDemoSession } from "@/lib/api";
 
 const rowSchema = z.object({ companyName: z.string().min(1), website: z.string().optional(), country: z.string().optional(), industry: z.string().optional(), externalId: z.string().optional() });

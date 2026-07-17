@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, CheckCircle2, FileSpreadsheet, Loader2 } from "lucide-react";
-import { Button, StatusBadge } from "@exportplay/ui";
+import { Button, StatusBadge } from "@navo/ui";
 
 const sample = `Company Name,Website,Country,Industry\nDemo Atlas Motion,https://atlas-motion.example,Germany,Industrial Equipment\nDemo Pacific Vision,pacific-vision.example,United States,Electronics Manufacturing`;
 const parseCsvLine = (line: string) => { const cells: string[] = []; let cell = ""; let quoted = false; for (let index = 0; index < line.length; index += 1) { const character = line[index]!; if (character === '"' && line[index + 1] === '"') { cell += '"'; index += 1; } else if (character === '"') quoted = !quoted; else if (character === "," && !quoted) { cells.push(cell.trim()); cell = ""; } else cell += character; } cells.push(cell.trim()); return cells; };

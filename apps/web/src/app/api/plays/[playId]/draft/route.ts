@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, plays, playVersions } from "@exportplay/db";
-import { DEMO_WORKSPACE_ID } from "@exportplay/db/queries";
+import { db, plays, playVersions } from "@navo/db";
+import { DEMO_WORKSPACE_ID } from "@navo/db/queries";
 import { apiError, requireDemoSession } from "@/lib/api";
 const graphSchema = z.object({
   nodes: z.array(

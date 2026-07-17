@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ArrowRight, CheckCircle2, ShieldCheck } from "lucide-react";
-import { Button } from "@exportplay/ui";
+import { Button } from "@navo/ui";
 
-async function enterDemo() { "use server"; const store = await cookies(); store.set("exportplay_session", "demo-owner", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 8 }); redirect("/app/overview"); }
+async function enterDemo() { "use server"; const store = await cookies(); store.set("navo_session", "demo-owner", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 8 }); redirect("/app/overview"); }
 export default function LoginPage() { return <main className="login-shell"><section className="login-brand-panel"><div className="brand"><span className="brand-mark">N</span><span>Navo</span></div><div><h1>让每一次海外触达都基于事实、经过审批、能够回放。</h1><div className="stack">{["Evidence、Inference、Decision 清晰分离","Play 版本、节点运行和成本完整可观测","开发环境强制 EmailSink 和测试白名单"].map(item=><div key={item} style={{display:"flex",gap:9,alignItems:"center",color:"#c8cdd6"}}><CheckCircle2 size={17} color="#7e75ff"/>{item}</div>)}</div></div><small style={{color:"#7f8795"}}>Clean-room MVP · Fictional demo data only</small></section><section className="login-panel"><form action={enterDemo} className="login-card"><div className="eyebrow">DEMO WORKSPACE</div><h2>欢迎使用 Navo</h2><p>使用预置的 Nova Automation Owner 账号进入完整演示环境。</p><div className="field"><label>邮箱</label><input className="input" value="demo@navo.local" readOnly aria-label="Demo email"/></div><div className="field"><label>密码</label><input className="input" value="••••••••••••" readOnly type="password" aria-label="Demo password"/></div><Button type="submit">进入 Demo Workspace <ArrowRight size={16}/></Button><div className="demo-note"><ShieldCheck size={15} style={{verticalAlign:"middle",marginRight:6}}/>本登录仅用于本地演示；生产部署需接入正式身份提供商。</div></form></section></main>; }

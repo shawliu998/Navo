@@ -8,8 +8,8 @@ import {
   messages,
   nodeRuns,
   runs,
-} from "@exportplay/db";
-import { DEMO_WORKSPACE_ID } from "@exportplay/db/queries";
+} from "@navo/db";
+import { DEMO_WORKSPACE_ID } from "@navo/db/queries";
 import { apiError, requireDemoSession } from "@/lib/api";
 const schema = z.object({
   status: z.enum([

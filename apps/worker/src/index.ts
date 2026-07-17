@@ -2,8 +2,8 @@ import { config } from "dotenv";
 import { resolve } from "node:path";
 import { Worker } from "bullmq";
 import IORedis from "ioredis";
-import { getAIProvider } from "@exportplay/agents";
-import { executeNode } from "@exportplay/workflows";
+import { getAIProvider } from "@navo/agents";
+import { executeNode } from "@navo/workflows";
 
 config({ path: resolve(process.cwd(), "../../.env.local"), quiet: true });
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:56379";

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { db, auditLogs, nodeRuns, runs } from "@exportplay/db";
-import { DEMO_WORKSPACE_ID } from "@exportplay/db/queries";
+import { db, auditLogs, nodeRuns, runs } from "@navo/db";
+import { DEMO_WORKSPACE_ID } from "@navo/db/queries";
 import { apiError, requireDemoSession } from "@/lib/api";
 const schema = z.object({ nodeRunId: z.string().uuid() });
 export async function POST(

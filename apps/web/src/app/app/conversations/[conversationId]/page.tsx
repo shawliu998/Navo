@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { ArrowLeft, Brain, CheckSquare, Lightbulb, MessageSquareText } from "lucide-react";
 import { notFound } from "next/navigation";
-import { DEMO_WORKSPACE_ID, getConversation } from "@exportplay/db/queries";
-import { Badge, StatusBadge } from "@exportplay/ui";
+import { DEMO_WORKSPACE_ID, getConversation } from "@navo/db/queries";
+import { Badge, StatusBadge } from "@navo/ui";
 
 export default async function ConversationPage({ params }: { params: Promise<{ conversationId: string }> }) {
   const { conversationId } = await params;

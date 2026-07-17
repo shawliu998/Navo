@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CornerUpLeft, Loader2, ShieldOff, Undo2 } from "lucide-react";
-import { Button } from "@exportplay/ui";
+import { Button } from "@navo/ui";
 
 export function EmailSinkActions({ messageId }: { messageId: string }) {
   const router = useRouter();
