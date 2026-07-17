@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "./client";
 import { accounts, agentEvents, agentMissionTargets, agentMissions, agentPlanSteps, agentPlans, agentPreferences, agentProfiles, approvals, approvedClaims, auditLogs, contacts, conversationSummaries, conversations, evidence, icpProfiles, inferences, integrationConnections, memoryFacts, messageClassifications, messageEvents, messages, nextActionProposals, nodeRuns, opportunityMirrors, personas, playVersions, plays, products, qualificationResults, runs, sequenceSteps, sequences, signals, tasks, workspaces } from "./schema";
 
@@ -307,6 +307,65 @@ export async function createMission(workspaceId: string, userId: string, input: 
     await tx.insert(agentMissionTargets).values({ workspaceId, createdBy: userId, missionId: mission.id, accountId: targetAccountId, priority: "HIGH", whySelected: "Selected as the single account for this mission run.", currentStep: "Plan ready for review", status: "PENDING" });
     await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId: mission.id, type: initialStatus === "ACTIVE" ? "MISSION_STARTED" : "MISSION_CREATED", title: initialStatus === "ACTIVE" ? "Navo started the mission." : "Navo prepared a mission draft.", severity: "SUCCESS", occurredAt: new Date(), metadata: { source: input.provider ?? "deterministic-legacy", targetCount } });
     return mission;
+  });
+}
+
+export async function updateMissionDraftMessage(workspaceId: string, userId: string, missionId: string, messageId: string, patch: { subject: string; body: string; revision: string }) {
+  return db.transaction(async (tx) => {
+    const [mission] = await tx.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.id, missionId))).limit(1);
+    if (!mission) return { kind: "MISSION_NOT_FOUND" as const };
+    const result = mission.result as { messageId?: unknown };
+    const [target] = await tx.select().from(agentMissionTargets).where(and(eq(agentMissionTargets.workspaceId, workspaceId), eq(agentMissionTargets.missionId, missionId), eq(agentMissionTargets.messageId, messageId))).limit(1);
+    if (result.messageId !== messageId && !target) return { kind: "MESSAGE_NOT_IN_MISSION" as const };
+    const [message] = await tx.select().from(messages).where(and(eq(messages.workspaceId, workspaceId), eq(messages.id, messageId))).limit(1);
+    if (!message) return { kind: "NOT_FOUND" as const };
+    if (message.direction !== "OUTBOUND" || message.status !== "DRAFT") return { kind: "NOT_EDITABLE" as const };
+    const currentRevision = message.updatedAt.toISOString();
+    if (patch.revision !== currentRevision) return { kind: "CONFLICT" as const, revision: currentRevision };
+    const firstEdit = message.originalSubject === null || message.originalBody === null;
+    const [updated] = await tx.update(messages).set({
+      subject: patch.subject,
+      body: patch.body,
+      originalSubject: message.originalSubject ?? message.subject,
+      originalBody: message.originalBody ?? message.body,
+      updatedAt: new Date(),
+    }).where(and(eq(messages.workspaceId, workspaceId), eq(messages.id, messageId), eq(messages.status, "DRAFT"), eq(messages.updatedAt, message.updatedAt))).returning();
+    if (!updated) return { kind: "CONFLICT" as const, revision: currentRevision };
+    await tx.insert(auditLogs).values({
+      workspaceId, createdBy: userId, actorId: userId, action: "DRAFT_MESSAGE_EDITED", resourceType: "MISSION", resourceId: missionId,
+      summary: "A DRAFT outreach message was edited; no email was sent.", metadata: { messageId, firstEdit, subjectChanged: message.subject !== patch.subject, bodyChanged: message.body !== patch.body, subjectLength: patch.subject.length, bodyLength: patch.body.length, previousRevision: currentRevision, noSend: true },
+    });
+    return { kind: "OK" as const, message: updated, firstEdit, revision: updated.updatedAt.toISOString() };
+  });
+}
+
+export async function createMissionFollowUpTask(workspaceId: string, userId: string, missionId: string) {
+  return db.transaction(async (tx) => {
+    const [mission] = await tx.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.id, missionId))).limit(1);
+    if (!mission || !mission.targetAccountId) return { kind: "NOT_FOUND" as const };
+    if (mission.status !== "COMPLETED") return { kind: "NOT_COMPLETED" as const };
+    const [target] = await tx.select().from(agentMissionTargets).where(and(eq(agentMissionTargets.workspaceId, workspaceId), eq(agentMissionTargets.missionId, missionId), eq(agentMissionTargets.accountId, mission.targetAccountId))).limit(1);
+    if (!target) return { kind: "NOT_FOUND" as const };
+    if (target.taskId) {
+      const [existing] = await tx.select().from(tasks).where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, target.taskId))).limit(1);
+      if (existing) return { kind: "EXISTS" as const, task: existing };
+      return { kind: "TASK_LINK_INVALID" as const };
+    }
+    const title = `Mission follow-up: ${mission.name}`;
+    const description = `Created from Mission ${mission.id}.\nObjective: ${mission.objective}`;
+    const taskId = crypto.randomUUID();
+    const [claimed] = await tx.update(agentMissionTargets).set({ taskId, updatedAt: new Date() }).where(and(eq(agentMissionTargets.workspaceId, workspaceId), eq(agentMissionTargets.id, target.id), isNull(agentMissionTargets.taskId))).returning({ id: agentMissionTargets.id });
+    if (!claimed) {
+      const [latest] = await tx.select().from(agentMissionTargets).where(and(eq(agentMissionTargets.workspaceId, workspaceId), eq(agentMissionTargets.id, target.id))).limit(1);
+      const [existing] = latest?.taskId ? await tx.select().from(tasks).where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, latest.taskId))).limit(1) : [];
+      return existing ? { kind: "EXISTS" as const, task: existing } : { kind: "TASK_LINK_INVALID" as const };
+    }
+    const [task] = await tx.insert(tasks).values({ id: taskId, workspaceId, createdBy: userId, accountId: mission.targetAccountId, title, description, type: "FOLLOW_UP", priority: "HIGH", status: "OPEN", assigneeName: "Sales Ops" }).returning();
+    if (!task) throw new Error("MISSION_FOLLOW_UP_TASK_PERSIST_FAILED");
+    const changedAt = new Date();
+    await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId, accountId: mission.targetAccountId, taskId: task.id, type: "MISSION_FOLLOW_UP_TASK_CREATED", title: "Created a follow-up task from this mission.", severity: "SUCCESS", occurredAt: changedAt, metadata: { taskId: task.id, idempotent: true, noSend: true } });
+    await tx.insert(auditLogs).values({ workspaceId, createdBy: userId, actorId: userId, action: "MISSION_FOLLOW_UP_TASK_CREATED", resourceType: "MISSION", resourceId: missionId, summary: "Created a follow-up task from a Mission completion brief.", metadata: { taskId: task.id, accountId: mission.targetAccountId, noSend: true } });
+    return { kind: "CREATED" as const, task };
   });
 }
 
