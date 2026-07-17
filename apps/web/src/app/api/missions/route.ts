@@ -17,8 +17,9 @@ export async function POST(request: Request) {
   const parsed = missionInputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return apiError("INVALID_MISSION", "Mission input is invalid.", 422, parsed.error.flatten());
   try {
-    const ai = getAIProvider();
-    const generated = await planMission(ai, { name: parsed.data.name, objective: parsed.data.objective, targetDescription: "The single selected account in the demo workspace." });
+    const generated = parsed.data.plan
+      ? { data: parsed.data.plan, provider: parsed.data.provider ?? "preview", model: parsed.data.model ?? "preview" }
+      : await planMission(getAIProvider(), { name: parsed.data.name, objective: parsed.data.objective, targetDescription: "The single selected account in the demo workspace." });
     const shouldStart = parsed.data.status === "ACTIVE" || parsed.data.status === "RUNNING";
     const mission = await createMission(DEMO_WORKSPACE_ID, DEMO_USER_ID, { ...parsed.data, status: shouldStart ? "READY" : parsed.data.status, targetCount: 1, maximumAccounts: 1, plan: generated.data, provider: generated.provider, model: generated.model, dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : undefined });
     let responseMission = mission;

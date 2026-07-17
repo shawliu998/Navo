@@ -11,7 +11,6 @@ import {
   PauseCircle,
   PlayCircle,
   ShieldCheck,
-  Sparkles,
   Target,
 } from "lucide-react";
 import { DEMO_WORKSPACE_ID, getAgentStatus, getOverview } from "@navo/db/queries";
@@ -101,7 +100,8 @@ export default async function OverviewPage() {
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 18 }}>
                 <div>
                   <Link href={`/app/missions/${mission.id}`} style={{ fontSize: 16, fontWeight: 740 }}>{mission.name}</Link>
-                  <p className="muted" style={{ margin: "7px 0 14px", lineHeight: 1.5 }}>{mission.objective}</p>
+                  <p className="muted" style={{ margin: "7px 0 8px", lineHeight: 1.5 }}>{mission.objective}</p>
+                  <small className="muted">Provider: {mission.provider ?? "Not selected"}{mission.model ? ` · ${mission.model}` : ""}</small>
                 </div>
                 <strong style={{ fontSize: 24 }}>{mission.progress}%</strong>
               </div>
@@ -168,13 +168,14 @@ export default async function OverviewPage() {
         </article>
 
         <article className="card">
-          <div className="card-header"><div><h2>Top playbooks</h2><span className="card-subtitle">Most recently used workspace plays</span></div><Sparkles size={15} className="muted" /></div>
-          {overview.topPlays.slice(0, 4).map((play) => (
-            <Link href={`/app/plays/${play.id}/builder`} className="list-row" key={play.id}>
-              <span><strong style={{ display: "block", fontSize: 12 }}>{play.name}</strong><small className="muted">{play.successRate ? `${play.successRate}% success` : "No completed runs yet"}</small></span>
-              <StatusBadge status={play.status} />
+          <div className="card-header"><div><h2>Recent missions</h2><span className="card-subtitle">Current and recently updated AI Sales Missions</span></div><Link href="/app/missions" className="muted">View all</Link></div>
+          {agent.recentMissions.map((item) => (
+            <Link href={`/app/missions/${item.id}`} className="list-row" key={item.id}>
+              <span><strong style={{ display: "block", fontSize: 12 }}>{item.name}</strong><small className="muted">{item.progress}% · {item.provider ?? "provider pending"}{item.model ? ` · ${item.model}` : ""}</small></span>
+              <StatusBadge status={item.status} />
             </Link>
           ))}
+          {!agent.recentMissions.length && <p className="muted">No missions have been created yet.</p>}
         </article>
       </section>
     </div>

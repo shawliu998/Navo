@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { MissionPlan } from "@navo/agents";
+import { missionPlanSchema, type MissionPlan } from "@navo/agents";
 
 export const missionInputSchema = z.object({
   name: z.string().trim().min(3).max(160),
@@ -20,6 +20,9 @@ export const missionInputSchema = z.object({
   targetCriteria: z.record(z.string(), z.unknown()).optional(),
   stopConditions: z.array(z.unknown()).max(20).optional(),
   targetAccountId: z.string().uuid().optional(),
+  plan: missionPlanSchema.optional(),
+  provider: z.string().trim().min(1).max(100).optional(),
+  model: z.string().trim().min(1).max(200).optional(),
 });
 
 export const missionPatchSchema = missionInputSchema.pick({

@@ -230,18 +230,19 @@ export type CreateMissionInput = {
 };
 
 export async function getAgentStatus(workspaceId: string) {
-  const [[profile], [preferences], activeMissions, [pendingApprovals], recentEvents] = await Promise.all([
+  const [[profile], [preferences], activeMissions, recentMissions, [pendingApprovals], recentEvents] = await Promise.all([
     db.select().from(agentProfiles).where(eq(agentProfiles.workspaceId, workspaceId)).limit(1),
     db.select().from(agentPreferences).where(eq(agentPreferences.workspaceId, workspaceId)).limit(1),
-    db.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), inArray(agentMissions.status, ["PLANNING", "ACTIVE", "WAITING", "PAUSED"]))).orderBy(desc(agentMissions.updatedAt)),
+    db.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), inArray(agentMissions.status, ["PLANNING", "ACTIVE", "RUNNING", "READY", "WAITING", "PAUSED"]))).orderBy(desc(agentMissions.updatedAt)),
+    db.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), sql`${agentMissions.archivedAt} is null`)).orderBy(desc(agentMissions.updatedAt)).limit(4),
     db.select({ value: count() }).from(approvals).where(and(eq(approvals.workspaceId, workspaceId), eq(approvals.status, "PENDING"))),
     db.select().from(agentEvents).where(eq(agentEvents.workspaceId, workspaceId)).orderBy(desc(agentEvents.occurredAt)).limit(20),
   ]);
-  const currentMission = activeMissions.find((mission) => mission.status === "ACTIVE" || mission.status === "WAITING") ?? activeMissions[0] ?? null;
+  const currentMission = activeMissions.find((mission) => ["ACTIVE", "RUNNING", "WAITING"].includes(mission.status)) ?? activeMissions[0] ?? null;
   const currentPlan = currentMission
     ? await db.select().from(agentPlanSteps).where(and(eq(agentPlanSteps.workspaceId, workspaceId), eq(agentPlanSteps.missionId, currentMission.id))).orderBy(asc(agentPlanSteps.order))
     : [];
-  return { profile: profile ?? null, preferences: preferences ?? null, activeMissions, activeMissionCount: activeMissions.filter((mission) => mission.status === "ACTIVE").length, pendingApprovalCount: pendingApprovals?.value ?? 0, currentMission, currentPlan, recentEvents };
+  return { profile: profile ?? null, preferences: preferences ?? null, activeMissions, recentMissions, activeMissionCount: activeMissions.filter((mission) => ["ACTIVE", "RUNNING"].includes(mission.status)).length, pendingApprovalCount: pendingApprovals?.value ?? 0, currentMission, currentPlan, recentEvents };
 }
 
 export async function setAgentPaused(workspaceId: string, userId: string, paused: boolean) {
@@ -260,13 +261,21 @@ export const getMissions = (workspaceId: string) => db.select().from(agentMissio
 export async function getMission(workspaceId: string, missionId: string) {
   const [mission] = await db.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.id, missionId))).limit(1);
   if (!mission) return null;
-  const [targets, plans, steps, events] = await Promise.all([
+  const result = mission.result as { evidenceIds?: string[]; signalIds?: string[]; qualification?: { id?: string }; messageId?: string };
+  const evidenceIds = Array.isArray(result.evidenceIds) ? result.evidenceIds : [];
+  const signalIds = Array.isArray(result.signalIds) ? result.signalIds : [];
+  const [targets, plans, steps, events, targetAccount, resultEvidence, resultSignals, resultQualification, resultMessage] = await Promise.all([
     db.select({ target: agentMissionTargets, account: accounts }).from(agentMissionTargets).innerJoin(accounts, and(eq(accounts.workspaceId, workspaceId), eq(accounts.id, agentMissionTargets.accountId))).where(and(eq(agentMissionTargets.workspaceId, workspaceId), eq(agentMissionTargets.missionId, missionId))).orderBy(desc(agentMissionTargets.priority), desc(accounts.fitScore)),
     db.select().from(agentPlans).where(and(eq(agentPlans.workspaceId, workspaceId), eq(agentPlans.missionId, missionId))).orderBy(desc(agentPlans.version)),
     db.select().from(agentPlanSteps).where(and(eq(agentPlanSteps.workspaceId, workspaceId), eq(agentPlanSteps.missionId, missionId))).orderBy(asc(agentPlanSteps.order)),
     db.select().from(agentEvents).where(and(eq(agentEvents.workspaceId, workspaceId), eq(agentEvents.missionId, missionId))).orderBy(desc(agentEvents.occurredAt)),
+    mission.targetAccountId ? db.select().from(accounts).where(and(eq(accounts.workspaceId, workspaceId), eq(accounts.id, mission.targetAccountId))).limit(1).then((rows) => rows[0] ?? null) : Promise.resolve(null),
+    evidenceIds.length ? db.select().from(evidence).where(and(eq(evidence.workspaceId, workspaceId), inArray(evidence.id, evidenceIds))).orderBy(desc(evidence.createdAt)) : Promise.resolve([]),
+    signalIds.length ? db.select().from(signals).where(and(eq(signals.workspaceId, workspaceId), inArray(signals.id, signalIds))).orderBy(desc(signals.createdAt)) : Promise.resolve([]),
+    result.qualification?.id ? db.select().from(qualificationResults).where(and(eq(qualificationResults.workspaceId, workspaceId), eq(qualificationResults.id, result.qualification.id))).limit(1).then((rows) => rows[0] ?? null) : Promise.resolve(null),
+    result.messageId ? db.select().from(messages).where(and(eq(messages.workspaceId, workspaceId), eq(messages.id, result.messageId))).limit(1).then((rows) => rows[0] ?? null) : Promise.resolve(null),
   ]);
-  return { mission, targets, plan: plans[0] ?? null, steps, events };
+  return { mission, targets, plan: plans[0] ?? null, steps, events, targetAccount, resultEvidence, resultSignals, resultQualification, resultMessage };
 }
 
 export async function createMission(workspaceId: string, userId: string, input: CreateMissionInput) {

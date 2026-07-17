@@ -44,6 +44,10 @@ test.describe.serial("Navo Agent Experience Sprint 0.3", () => {
     await page.screenshot({ path: path.join(shots, "mission-wizard.png"), fullPage: true });
     for (let step = 0; step < 5; step += 1) await page.getByRole("button", { name: /Continue/ }).click();
     await expect(page.getByRole("heading", { name: "Review and create" })).toBeVisible();
+    await page.getByRole("button", { name: /Generate AI MissionPlan preview/ }).click();
+    await expect(page.getByText("AI MissionPlan")).toBeVisible();
+    await expect(page.getByText(/mock-ai|deepseek/i)).toBeVisible();
+    await expect(page.getByText("DRAFT ONLY", { exact: true })).toBeVisible();
     const created = page.waitForResponse((response) => response.url().endsWith("/api/missions") && response.request().method() === "POST");
     await page.getByRole("button", { name: /Create & start/ }).click();
     expect((await created).status()).toBe(201);
