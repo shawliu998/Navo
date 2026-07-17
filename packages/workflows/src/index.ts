@@ -3,6 +3,8 @@ import type { AIProvider } from "@navo/agents";
 import { messageOutputSchema, qualificationOutputSchema, replyDraftOutputSchema } from "@navo/agents";
 import { classifyReply, deriveMemoryFacts, evaluateSendPolicy, proposeNextBestAction, qualifyAccount, redactSensitive, summarizeConversation } from "@navo/domain";
 
+export * from "./website-research/index";
+
 export type NodeDefinition = { type: string; category: string; label: string; description: string; inputPorts: string[]; outputPorts: string[]; configurationSchema: z.ZodType; runtimeInputSchema: z.ZodType; runtimeOutputSchema: z.ZodType };
 const anyInput = z.record(z.string(), z.unknown());
 const anyOutput = z.record(z.string(), z.unknown());
