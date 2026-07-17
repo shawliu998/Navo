@@ -33,7 +33,7 @@ export const accounts = pgTable("accounts", { ...tenantColumns(), name: text("na
 export const tags = simpleTenantTable("tags");
 export const accountTags = simpleTenantTable("account_tags");
 export const contacts = pgTable("contacts", { ...tenantColumns(), accountId: uuid("account_id").notNull(), name: text("name").notNull(), title: text("title"), persona: text("persona"), email: text("email"), emailVerification: text("email_verification").default("UNKNOWN").notNull(), status: text("status").default("NEW").notNull(), source: text("source").default("DEMO").notNull(), lastContactedAt: timestamp("last_contacted_at", { withTimezone: true }), suppressed: boolean("suppressed").default(false).notNull() });
-export const signals = pgTable("signals", { ...tenantColumns(), accountId: uuid("account_id").notNull(), type: text("type").notNull(), summary: text("summary").notNull(), confidence: numeric("confidence", { precision: 4, scale: 3 }), detectedAt: timestamp("detected_at", { withTimezone: true }).defaultNow().notNull(), status: text("status").default("NEW").notNull(), triggeredPlayId: uuid("triggered_play_id"), ownerName: text("owner_name") });
+export const signals = pgTable("signals", { ...tenantColumns(), accountId: uuid("account_id").notNull(), type: text("type").notNull(), summary: text("summary").notNull(), rationale: text("rationale"), evidenceUrls: jsonb("evidence_urls").default([]).notNull(), confidence: numeric("confidence", { precision: 4, scale: 3 }), detectedAt: timestamp("detected_at", { withTimezone: true }).defaultNow().notNull(), status: text("status").default("NEW").notNull(), triggeredPlayId: uuid("triggered_play_id"), ownerName: text("owner_name") });
 export const evidence = pgTable("evidence", { ...tenantColumns(), accountId: uuid("account_id").notNull(), type: text("type").notNull(), title: text("title").notNull(), summary: text("summary").notNull(), quote: text("quote"), sourceUrl: text("source_url"), pageTitle: text("page_title"), observedAt: timestamp("observed_at", { withTimezone: true }).notNull(), fetchedAt: timestamp("fetched_at", { withTimezone: true }).defaultNow().notNull(), confidence: numeric("confidence", { precision: 4, scale: 3 }).notNull(), accessible: boolean("accessible").default(true).notNull(), contentHash: text("content_hash"), metadata: jsonb("metadata").default({}).notNull() }, (table) => [index("evidence_workspace_account_idx").on(table.workspaceId, table.accountId, table.observedAt)]);
 export const inferences = pgTable("inferences", { ...tenantColumns(), accountId: uuid("account_id").notNull(), statement: text("statement").notNull(), evidenceIds: jsonb("evidence_ids").default([]).notNull(), confidence: numeric("confidence", { precision: 4, scale: 3 }).notNull(), agentVersion: text("agent_version").notNull() });
 export const qualificationResults = pgTable("qualification_results", { ...tenantColumns(), accountId: uuid("account_id").notNull(), score: integer("score").notNull(), status: text("status").notNull(), scoreBreakdown: jsonb("score_breakdown").notNull(), reasons: jsonb("reasons").default([]).notNull(), risks: jsonb("risks").default([]).notNull(), evidenceIds: jsonb("evidence_ids").default([]).notNull(), inferenceIds: jsonb("inference_ids").default([]).notNull(), confidence: numeric("confidence", { precision: 4, scale: 3 }).notNull() });
@@ -90,6 +90,13 @@ export const agentMissions = pgTable("agent_missions", {
   testMode: boolean("test_mode").default(true).notNull(),
   stopConditions: jsonb("stop_conditions").default([]).notNull(),
   targetCriteria: jsonb("target_criteria").default({}).notNull(),
+  plan: jsonb("plan").default({}).notNull(),
+  result: jsonb("result").default({}).notNull(),
+  error: text("error"),
+  targetAccountId: uuid("target_account_id"),
+  provider: text("provider"),
+  model: text("model"),
+  queuedAt: timestamp("queued_at", { withTimezone: true }),
   startedAt: timestamp("started_at", { withTimezone: true }),
   dueAt: timestamp("due_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),

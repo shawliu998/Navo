@@ -29,6 +29,13 @@
       "when": 1784266921862,
       "tag": "0003_gray_bruce_banner",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784268452114,
+      "tag": "0004_silly_molten_man",
+      "breakpoints": true
     }
   ]
 }

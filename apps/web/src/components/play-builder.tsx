@@ -42,7 +42,7 @@ import {
   Users,
   Workflow,
 } from "lucide-react";
-import { nodeRegistry, nodeRegistryByType } from "@navo/workflows";
+import { nodeRegistry, nodeRegistryByType } from "@navo/workflows/registry";
 
 type FlowData = {
   label: string;

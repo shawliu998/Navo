@@ -202,7 +202,7 @@ export type CreateMissionInput = {
   type?: string;
   objective: string;
   desiredOutcome?: string;
-  status?: "DRAFT" | "PLANNING" | "ACTIVE";
+  status?: "DRAFT" | "PLANNING" | "READY" | "RUNNING" | "ACTIVE";
   operatingMode?: "OBSERVE" | "RECOMMEND" | "APPROVAL_CONTROLLED";
   playId?: string;
   inputSource?: string;
@@ -215,6 +215,18 @@ export type CreateMissionInput = {
   dueAt?: Date;
   targetCriteria?: Record<string, unknown>;
   stopConditions?: unknown[];
+  targetAccountId?: string;
+  plan?: {
+    name: string;
+    missionType: string;
+    objective: string;
+    targetDescription: string;
+    steps: Array<{ id: string; type: string; title: string; description: string }>;
+    expectedOutputs: string[];
+    assumptions: string[];
+  };
+  provider?: string;
+  model?: string;
 };
 
 export async function getAgentStatus(workspaceId: string) {
@@ -259,27 +271,66 @@ export async function getMission(workspaceId: string, missionId: string) {
 
 export async function createMission(workspaceId: string, userId: string, input: CreateMissionInput) {
   return db.transaction(async (tx) => {
-    const requestedAccountIds = [...new Set(input.accountIds ?? [])];
+    const requestedAccountIds = [...new Set([input.targetAccountId, ...(input.accountIds ?? [])].filter((value): value is string => Boolean(value)))];
     const selectedAccounts = requestedAccountIds.length
-      ? await tx.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.workspaceId, workspaceId), inArray(accounts.id, requestedAccountIds)))
-      : await tx.select({ id: accounts.id }).from(accounts).where(eq(accounts.workspaceId, workspaceId)).orderBy(desc(accounts.fitScore)).limit(input.maximumAccounts ?? input.targetCount ?? 20);
-    const targetCount = input.targetCount ?? input.maximumAccounts ?? selectedAccounts.length;
+      ? await tx.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.workspaceId, workspaceId), inArray(accounts.id, requestedAccountIds.slice(0, 1))))
+      : await tx.select({ id: accounts.id }).from(accounts).where(eq(accounts.workspaceId, workspaceId)).orderBy(desc(accounts.fitScore)).limit(1);
+    if (!selectedAccounts[0]) throw new Error("MISSION_TARGET_ACCOUNT_REQUIRED: Select one target account before creating a mission.");
+    if (input.targetAccountId && selectedAccounts[0].id !== input.targetAccountId) throw new Error("MISSION_TARGET_ACCOUNT_NOT_FOUND: The selected account is outside this workspace or does not exist.");
+    const targetAccountId = selectedAccounts[0].id;
+    const targetCount = 1;
     const initialStatus = input.status ?? "DRAFT";
+    const planSteps = input.plan?.steps ?? DEFAULT_MISSION_STEPS.map((title, index) => ({ id: `legacy-${index + 1}`, type: ["LOAD_KNOWLEDGE", "LOAD_ACCOUNT", "RESEARCH_WEBSITE", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "GENERATE_OUTREACH"][Math.min(index, 5)]!, title, description: "Legacy deterministic mission step." }));
     const [mission] = await tx.insert(agentMissions).values({
       workspaceId, createdBy: userId, name: input.name, type: input.type ?? "TARGET_ACCOUNT_DISCOVERY", objective: input.objective,
       desiredOutcome: input.desiredOutcome, status: initialStatus, operatingMode: input.operatingMode ?? "APPROVAL_CONTROLLED",
       playId: input.playId, inputSource: input.inputSource ?? "DEMO_ACCOUNTS", approvalPolicy: input.approvalPolicy ?? "REQUIRED_FOR_OUTBOUND",
       targetCount, maximumAccounts: input.maximumAccounts ?? targetCount, estimatedCostLimit: input.estimatedCostLimit?.toFixed(2),
       testMode: input.testMode ?? true, dueAt: input.dueAt, targetCriteria: input.targetCriteria ?? {}, stopConditions: input.stopConditions ?? [],
-      currentStep: initialStatus === "ACTIVE" ? DEFAULT_MISSION_STEPS[0] : "Plan ready for review", progress: 0,
-      startedAt: initialStatus === "ACTIVE" ? new Date() : null, agentSummary: "Navo prepared a deterministic, approval-controlled execution plan.",
+      plan: input.plan ?? {}, result: {}, error: null, targetAccountId, provider: input.provider, model: input.model,
+      currentStep: initialStatus === "ACTIVE" || initialStatus === "RUNNING" ? planSteps[0]?.title : "Plan ready for review", progress: 0,
+      startedAt: initialStatus === "ACTIVE" || initialStatus === "RUNNING" ? new Date() : null, agentSummary: input.plan ? "Navo generated a schema-validated AI mission plan." : "Navo prepared a deterministic legacy execution plan.",
     }).returning();
     if (!mission) throw new Error("Mission insert did not return a row");
     const [plan] = await tx.insert(agentPlans).values({ workspaceId, createdBy: userId, missionId: mission.id, title: `${mission.name} plan`, status: initialStatus === "DRAFT" ? "DRAFT" : "ACTIVE", estimatedDurationMinutes: 90, estimatedCost: "0.04000", summary: "Evidence-backed research and controlled outbound plan." }).returning();
     if (!plan) throw new Error("Plan insert did not return a row");
-    await tx.insert(agentPlanSteps).values(DEFAULT_MISSION_STEPS.map((title, index) => ({ workspaceId, createdBy: userId, missionId: mission.id, planId: plan.id, order: index + 1, title, status: initialStatus === "ACTIVE" && index === 0 ? "RUNNING" : "PENDING", relatedPlayNodeId: ["context", "icp", "target", "research", "signals", "qualify", "persona", "message", "approval", "enroll", "reply-trigger", "task"][index], input: { testMode: input.testMode ?? true }, output: {} })));
-    if (selectedAccounts.length) await tx.insert(agentMissionTargets).values(selectedAccounts.map((account, index) => ({ workspaceId, createdBy: userId, missionId: mission.id, accountId: account.id, priority: index < 3 ? "HIGH" : "MEDIUM", whySelected: "Matches the selected ICP and target criteria.", currentStep: "Queued for research", status: "PENDING" })));
-    await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId: mission.id, type: initialStatus === "ACTIVE" ? "MISSION_STARTED" : "MISSION_CREATED", title: initialStatus === "ACTIVE" ? "Navo started the mission." : "Navo prepared a mission draft.", severity: "SUCCESS", occurredAt: new Date(), metadata: { source: "deterministic-mock", targetCount } });
+    await tx.insert(agentPlanSteps).values(planSteps.map((step, index) => ({ workspaceId, createdBy: userId, missionId: mission.id, planId: plan.id, order: index + 1, title: step.title, description: step.description, status: (initialStatus === "ACTIVE" || initialStatus === "RUNNING") && index === 0 ? "RUNNING" : "PENDING", relatedPlayNodeId: step.type, input: { testMode: input.testMode ?? true, planStepId: step.id }, output: {} })));
+    await tx.insert(agentMissionTargets).values({ workspaceId, createdBy: userId, missionId: mission.id, accountId: targetAccountId, priority: "HIGH", whySelected: "Selected as the single account for this mission run.", currentStep: "Plan ready for review", status: "PENDING" });
+    await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId: mission.id, type: initialStatus === "ACTIVE" ? "MISSION_STARTED" : "MISSION_CREATED", title: initialStatus === "ACTIVE" ? "Navo started the mission." : "Navo prepared a mission draft.", severity: "SUCCESS", occurredAt: new Date(), metadata: { source: input.provider ?? "deterministic-legacy", targetCount } });
+    return mission;
+  });
+}
+
+export async function prepareMissionStart(workspaceId: string, userId: string, missionId: string) {
+  return db.transaction(async (tx) => {
+    const [mission] = await tx.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.id, missionId))).limit(1);
+    if (!mission) return { kind: "NOT_FOUND" as const };
+    if (mission.status === "RUNNING") return { kind: "OK" as const, mission, alreadyRunning: true };
+    if (!["DRAFT", "PLANNING", "READY"].includes(mission.status)) return { kind: "INVALID_TRANSITION" as const, status: mission.status };
+    const targets = await tx.select({ accountId: agentMissionTargets.accountId }).from(agentMissionTargets).where(and(eq(agentMissionTargets.workspaceId, workspaceId), eq(agentMissionTargets.missionId, missionId))).limit(2);
+    const targetAccountId = mission.targetAccountId ?? targets[0]?.accountId;
+    if (!targetAccountId || targets.length !== 1) return { kind: "TARGET_REQUIRED" as const };
+    const [account] = await tx.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.workspaceId, workspaceId), eq(accounts.id, targetAccountId))).limit(1);
+    if (!account) return { kind: "TARGET_REQUIRED" as const };
+    if (!mission.plan || typeof mission.plan !== "object" || !Array.isArray((mission.plan as { steps?: unknown }).steps)) return { kind: "PLAN_REQUIRED" as const };
+    const changedAt = new Date();
+    const [updated] = await tx.update(agentMissions).set({ status: "RUNNING", targetAccountId, error: null, result: {}, queuedAt: changedAt, startedAt: mission.startedAt ?? changedAt, completedAt: null, progress: 0, currentStep: "Queued for mission execution", agentSummary: "Mission queued for single-account execution.", updatedAt: changedAt }).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.id, missionId), eq(agentMissions.status, mission.status))).returning();
+    if (!updated) return { kind: "CONFLICT" as const };
+    await tx.update(agentPlans).set({ status: "ACTIVE", updatedAt: changedAt }).where(and(eq(agentPlans.workspaceId, workspaceId), eq(agentPlans.missionId, missionId)));
+    await tx.update(agentMissionTargets).set({ status: "QUEUED", currentStep: "Queued for mission execution", updatedAt: changedAt }).where(and(eq(agentMissionTargets.workspaceId, workspaceId), eq(agentMissionTargets.missionId, missionId), eq(agentMissionTargets.accountId, targetAccountId)));
+    await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId, accountId: targetAccountId, type: "MISSION_QUEUED", title: "Mission queued for execution.", severity: "INFO", occurredAt: changedAt, metadata: { queue: "navo-runs", jobName: "mission.execute" } });
+    return { kind: "OK" as const, mission: updated, alreadyRunning: false };
+  });
+}
+
+export async function failMissionQueue(workspaceId: string, userId: string, missionId: string, message: string) {
+  const changedAt = new Date();
+  return db.transaction(async (tx) => {
+    const [mission] = await tx.update(agentMissions).set({ status: "FAILED", error: message, currentStep: "Queue submission failed", agentSummary: message, completedAt: changedAt, updatedAt: changedAt }).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.id, missionId), eq(agentMissions.status, "RUNNING"))).returning();
+    if (!mission) return null;
+    await tx.update(agentPlans).set({ status: "FAILED", updatedAt: changedAt }).where(and(eq(agentPlans.workspaceId, workspaceId), eq(agentPlans.missionId, missionId)));
+    await tx.update(agentMissionTargets).set({ status: "FAILED", currentStep: "Queue submission failed", updatedAt: changedAt }).where(and(eq(agentMissionTargets.workspaceId, workspaceId), eq(agentMissionTargets.missionId, missionId)));
+    await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId, accountId: mission.targetAccountId, type: "MISSION_FAILED", title: "Mission could not be queued.", description: message, severity: "ERROR", status: "FAILED", occurredAt: changedAt, metadata: { stage: "QUEUE" } });
     return mission;
   });
 }

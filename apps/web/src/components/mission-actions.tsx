@@ -15,7 +15,7 @@ export function MissionActions({missionId,status}:{missionId:string;status:strin
   }
   const terminal=["COMPLETED","CANCELLED"].includes(status);
   return <div style={{display:"grid",justifyItems:"end",gap:5}}><div className="page-actions">
-    {["DRAFT","PLANNING"].includes(status)&&<Button disabled={!!busy} onClick={()=>act("start")}><Play size={14}/>{busy==="start"?"Starting…":"Start mission"}</Button>}
+    {["DRAFT","PLANNING","READY"].includes(status)&&<Button disabled={!!busy} onClick={()=>act("start")}><Play size={14}/>{busy==="start"?"Starting…":"Start mission"}</Button>}
     {["ACTIVE","WAITING","PLANNING"].includes(status)&&<Button variant="secondary" disabled={!!busy} onClick={()=>act("pause")}><Pause size={14}/>{busy==="pause"?"Pausing…":"Pause"}</Button>}
     {status==="PAUSED"&&<Button disabled={!!busy} onClick={()=>act("resume")}><RotateCcw size={14}/>{busy==="resume"?"Resuming…":"Resume"}</Button>}
     {!terminal&&<Button variant="ghost" disabled={!!busy} onClick={()=>act("cancel")}><Ban size={14}/>Cancel</Button>}

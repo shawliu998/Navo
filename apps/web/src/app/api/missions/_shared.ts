@@ -1,11 +1,12 @@
 import { z } from "zod";
+import type { MissionPlan } from "@navo/agents";
 
 export const missionInputSchema = z.object({
   name: z.string().trim().min(3).max(160),
   type: z.string().trim().min(2).max(80).optional(),
   objective: z.string().trim().min(8).max(2_000),
   desiredOutcome: z.string().trim().max(1_000).optional(),
-  status: z.enum(["DRAFT", "PLANNING", "ACTIVE"]).optional(),
+  status: z.enum(["DRAFT", "PLANNING", "READY", "RUNNING", "ACTIVE"]).optional(),
   operatingMode: z.enum(["OBSERVE", "RECOMMEND", "APPROVAL_CONTROLLED"]).optional(),
   playId: z.string().uuid().optional(),
   inputSource: z.string().trim().max(80).optional(),
@@ -18,6 +19,7 @@ export const missionInputSchema = z.object({
   dueAt: z.string().datetime().optional(),
   targetCriteria: z.record(z.string(), z.unknown()).optional(),
   stopConditions: z.array(z.unknown()).max(20).optional(),
+  targetAccountId: z.string().uuid().optional(),
 });
 
 export const missionPatchSchema = missionInputSchema.pick({
@@ -73,5 +75,27 @@ export function deterministicCommandProposal(command: string) {
     operatingMode: "APPROVAL_CONTROLLED" as const,
     testMode: true,
     deterministic: true,
+  };
+}
+
+export function missionPlanProposal(plan: MissionPlan) {
+  return {
+    name: plan.name,
+    objective: plan.objective,
+    missionType: plan.missionType,
+    targetScope: plan.targetDescription,
+    inputSource: "DEMO_ACCOUNTS",
+    recommendedPlaybook: "Target Account Outreach with Policy Check",
+    planSteps: plan.steps.map((step) => step.title),
+    expectedOutputs: plan.expectedOutputs,
+    estimatedAccounts: 1,
+    estimatedCost: 0.004,
+    riskLevel: "LOW",
+    approvalRequirements: ["This mission saves a DRAFT only and never sends email."],
+    operatingMode: "RECOMMEND" as const,
+    testMode: true,
+    deterministic: false,
+    assumptions: plan.assumptions,
+    plan,
   };
 }
