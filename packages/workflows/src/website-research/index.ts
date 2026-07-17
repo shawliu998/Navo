@@ -33,6 +33,7 @@ export type WebsiteResearchDependencies = {
   request?: RawWebsiteRequest;
   now?: () => Date;
   limits?: Partial<WebsiteResearchLimits>;
+  allowBenchmarkDns?: boolean;
 };
 
 export const defaultWebsiteResearchLimits: Readonly<WebsiteResearchLimits> = Object.freeze({
@@ -68,7 +69,7 @@ function normalizeLimits(overrides: Partial<WebsiteResearchLimits> | undefined):
     connectTimeoutMs: Math.max(1, Math.min(30_000, Math.floor(merged.connectTimeoutMs))),
     totalTimeoutMs: Math.max(1, Math.min(120_000, Math.floor(merged.totalTimeoutMs))),
     maxRedirects: Math.max(0, Math.min(10, Math.floor(merged.maxRedirects))),
-    maxPages: Math.max(1, Math.min(3, Math.floor(merged.maxPages))),
+    maxPages: Math.max(1, Math.min(5, Math.floor(merged.maxPages))),
     maxResponseBytes: Math.max(1, Math.min(5_000_000, Math.floor(merged.maxResponseBytes))),
     maxPageTextLength: Math.max(1, Math.min(100_000, Math.floor(merged.maxPageTextLength))),
     maxTotalTextLength: Math.max(1, Math.min(200_000, Math.floor(merged.maxTotalTextLength))),
@@ -89,10 +90,11 @@ function responseError(response: RawWebsiteResponse, url: string): WebsiteResear
 async function fetchPage(
   initialUrl: string,
   allowedDomain: URL | undefined,
-  dependencies: Required<Pick<WebsiteResearchDependencies, "resolveHostname" | "request" | "now">>,
+  dependencies: Required<Pick<WebsiteResearchDependencies, "resolveHostname" | "request" | "now" | "allowBenchmarkDns">>,
   limits: WebsiteResearchLimits,
   signal: AbortSignal,
   deadline: number,
+  focus: "COMPANY" | "CONTACTS",
 ): Promise<PageFetch | WebsiteResearchError> {
   let currentUrl = initialUrl;
   let redirectDomain = allowedDomain;
@@ -113,7 +115,7 @@ async function fetchPage(
     let validation;
     try {
       validation = await Promise.race([
-        validateWebsiteTarget(currentUrl, dependencies.resolveHostname),
+        validateWebsiteTarget(currentUrl, dependencies.resolveHostname, { allowBenchmarkDns: dependencies.allowBenchmarkDns }),
         waitForAbort(signal, currentUrl),
       ]);
     } catch (cause) {
@@ -157,7 +159,7 @@ async function fetchPage(
 
     const badResponse = responseError(response, validation.target.url.toString());
     if (badResponse) return badResponse;
-    const extracted = extractWebsiteHtml(new TextDecoder("utf-8", { fatal: false }).decode(response.body), validation.target.url, limits.maxPageTextLength);
+    const extracted = extractWebsiteHtml(new TextDecoder("utf-8", { fatal: false }).decode(response.body), validation.target.url, limits.maxPageTextLength, focus);
     const fetchedAt = dependencies.now().toISOString();
     return {
       page: {
@@ -179,29 +181,39 @@ export async function fetchWebsiteResearch(
 ): Promise<WebsiteResearchOutput> {
   const parsed = websiteResearchInputSchema.safeParse(input);
   if (!parsed.success) return failure({ code: "INVALID_INPUT", message: "Website research input is invalid" });
-  const limits = normalizeLimits(injected.limits);
+  const limits = normalizeLimits({
+    ...injected.limits,
+    maxPages: injected.limits?.maxPages ?? (parsed.data.focus === "CONTACTS" ? 5 : defaultWebsiteResearchLimits.maxPages),
+    totalTimeoutMs: injected.limits?.totalTimeoutMs ?? (parsed.data.focus === "CONTACTS" ? 30_000 : defaultWebsiteResearchLimits.totalTimeoutMs),
+  });
   const dependencies = {
     resolveHostname: injected.resolveHostname ?? systemResolveHostname,
     request: injected.request ?? nodeHttpRequest,
     now: injected.now ?? (() => new Date()),
+    allowBenchmarkDns: injected.allowBenchmarkDns ?? process.env.WEBSITE_RESEARCH_ALLOW_BENCHMARK_DNS === "true",
   };
   const controller = new AbortController();
   const deadline = Date.now() + limits.totalTimeoutMs;
   const timeout = setTimeout(() => controller.abort(), limits.totalTimeoutMs);
   try {
-    const homepage = await fetchPage(parsed.data.websiteUrl, undefined, dependencies, limits, controller.signal, deadline);
+    const homepage = await fetchPage(parsed.data.websiteUrl, undefined, dependencies, limits, controller.signal, deadline, parsed.data.focus);
     if (!("page" in homepage)) return failure(homepage);
 
     const pages = [homepage.page];
     const homepageUrl = new URL(homepage.page.url);
-    const candidates = selectPreferredWebsiteLinks(homepage.links, limits.maxPages - 1);
-    for (const candidate of candidates) {
-      const page = await fetchPage(candidate.toString(), homepageUrl, dependencies, limits, controller.signal, deadline);
+    const pending = [...homepage.links];
+    const visited = new Set([homepage.page.url]);
+    while (pages.length < limits.maxPages) {
+      const candidate = selectPreferredWebsiteLinks(pending, pending.length).find((url) => !visited.has(url.toString()));
+      if (!candidate) break;
+      visited.add(candidate.toString());
+      const page = await fetchPage(candidate.toString(), homepageUrl, dependencies, limits, controller.signal, deadline, parsed.data.focus);
       if (!("page" in page)) {
         if (page.code === "TIMEOUT") return failure(page);
         continue;
       }
       pages.push(page.page);
+      pending.push(...page.links);
     }
 
     let remaining = limits.maxTotalTextLength;

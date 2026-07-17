@@ -4,6 +4,8 @@ import { classifyReply, deriveMemoryFacts, evaluateSendPolicy, proposeNextBestAc
 
 export * from "./website-research/index";
 export * from "./registry";
+export * from "./tools/index";
+export * from "./mission-executor";
 
 export type ExecutorContext = { ai: AIProvider; workspaceId: string; runId: string; testMode: boolean };
 export async function executeNode(type: string, input: Record<string, unknown>, config: Record<string, unknown>, context: ExecutorContext) {

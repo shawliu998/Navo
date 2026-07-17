@@ -78,6 +78,13 @@ describe("website target policy", () => {
     expect(result).toMatchObject({ ok: false, error: { code: "BLOCKED_ADDRESS" } });
   });
 
+  it("allows synthetic benchmark DNS only through the explicit local proxy option", async () => {
+    const resolver = async () => [{ address: "198.18.25.141", family: 4 as const }];
+    await expect(validateWebsiteTarget("https://public.example", resolver)).resolves.toMatchObject({ ok: false, error: { code: "BLOCKED_ADDRESS" } });
+    await expect(validateWebsiteTarget("https://public.example", resolver, { allowBenchmarkDns: true })).resolves.toMatchObject({ ok: true });
+    await expect(validateWebsiteTarget("https://198.18.25.141", resolver, { allowBenchmarkDns: true })).resolves.toMatchObject({ ok: false, error: { code: "BLOCKED_ADDRESS" } });
+  });
+
   it("returns a clear DNS error", async () => {
     const result = await validateWebsiteTarget("https://missing.example", async () => { throw new Error("NXDOMAIN"); });
     expect(result).toMatchObject({ ok: false, error: { code: "DNS_FAILED" } });
@@ -179,6 +186,25 @@ describe("fetchWebsiteResearch", () => {
       expect(result.data.pages).toHaveLength(3);
       expect(result.data.pages.every((page) => page.contentTrust === "untrusted")).toBe(true);
     }
+    expect(requested).toEqual([...pages.keys()]);
+  });
+
+  it("uses contact focus to follow a nested leadership page", async () => {
+    const requested: string[] = [];
+    const pages = new Map([
+      ["https://atlas.example/", '<html><body><a href="/products">Products</a><a href="/about">About company</a></body></html>'],
+      ["https://atlas.example/about", '<html><body><a href="/about/leadership">Leadership team</a></body></html>'],
+      ["https://atlas.example/about/leadership", "<html><body>Alex Morgan leads quality engineering.</body></html>"],
+    ]);
+    const request: RawWebsiteRequest = async (target) => {
+      requested.push(target.url.toString());
+      const page = pages.get(target.url.toString());
+      if (!page) throw new Error("Unexpected request");
+      return htmlResponse(page);
+    };
+    const result = await fetchWebsiteResearch({ accountId: "acct-1", websiteUrl: "https://atlas.example", focus: "CONTACTS" }, dependencies(request));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.pages.at(-1)?.text).toContain("Alex Morgan");
     expect(requested).toEqual([...pages.keys()]);
   });
 

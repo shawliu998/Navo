@@ -115,7 +115,11 @@ export const systemResolveHostname: ResolveHostname = async (hostname) => {
   return results.map(({ address, family }) => ({ address, family } as ResolvedAddress));
 };
 
-export async function validateWebsiteTarget(rawUrl: string, resolveHostname: ResolveHostname = systemResolveHostname): Promise<PolicyResult> {
+export async function validateWebsiteTarget(
+  rawUrl: string,
+  resolveHostname: ResolveHostname = systemResolveHostname,
+  options: { allowBenchmarkDns?: boolean } = {},
+): Promise<PolicyResult> {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -153,6 +157,7 @@ export async function validateWebsiteTarget(rawUrl: string, resolveHostname: Res
   }
   for (const entry of unique) {
     const reason = blockedAddressReason(entry.address);
+    if (reason === "benchmark" && options.allowBenchmarkDns) continue;
     if (reason) return error("BLOCKED_ADDRESS", `DNS resolved ${hostname} to a disallowed address (${reason})`, url.toString());
   }
   return { ok: true, target: { url, hostname, addresses: unique } };

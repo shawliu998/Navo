@@ -19,15 +19,18 @@ describe("mission command account guard", () => {
 });
 
 describe("mission preview contract", () => {
-  it("keeps the exact schema-validated Mock plan for persistence", () => {
+  it("keeps the exact schema-validated server plan for persistence", () => {
     const plan = {
-      name: "Research one account", missionType: "OUTREACH_PREPARATION", objective: "Research one selected account with evidence.", targetDescription: "One selected account and its public website.",
-      steps: ["LOAD_KNOWLEDGE", "LOAD_ACCOUNT", "RESEARCH_WEBSITE", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "GENERATE_OUTREACH"].map((type) => ({ id: type.toLowerCase(), type, title: type, description: `Run ${type}.` })),
+      version: 1, name: "Research accounts", missionType: "OUTREACH_PREPARATION", objective: "Research selected accounts with evidence.", strategy: "Run a bounded autonomous plan.", targetDescription: "Workspace seed accounts.",
+      targetCriteria: { countries: ["Germany"], industries: ["Packaging"], companyTypes: ["Manufacturer"], keywords: ["automation"] },
+      steps: ["LOAD_SELLER_KNOWLEDGE", "SELECT_TARGET_ACCOUNTS", "RESEARCH_COMPANY", "SUMMARIZE_MISSION"].map((type, index, all) => ({ id: type.toLowerCase(), type, title: type, description: `Run ${type}.`, status: "PENDING", dependsOn: index ? [all[index - 1]!.toLowerCase()] : [] })),
+      stopConditions: ["Required outputs persisted"],
       expectedOutputs: ["Evidence-backed account brief"], assumptions: ["Public website is reachable."],
     };
     const parsed = mockMissionPreviewSchema.parse({ plan, provider: "mock-ai", model: "deterministic-v1" });
     expect(parsed.plan).toEqual(plan);
-    expect(mockMissionPreviewSchema.safeParse({ ...parsed, provider: "untrusted" }).success).toBe(false);
+    expect(mockMissionPreviewSchema.safeParse({ ...parsed, provider: "deepseek", model: "deepseek-chat" }).success).toBe(true);
+    expect(mockMissionPreviewSchema.safeParse({ ...parsed, provider: "" }).success).toBe(false);
   });
 });
 

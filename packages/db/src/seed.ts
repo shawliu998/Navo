@@ -16,13 +16,13 @@ export const DEMO_USER_ID = id(2);
 
 const accountSeed = [
   ["Demo Rheinwerk Automation GmbH", "rheinwerk-demo.example", "Germany", "Automotive Components", "500–1000", 92, "STRONG_FIT"],
-  ["Demo Horizon Packaging Systems Inc.", "horizonpack-demo.example", "United States", "Packaging", "1000–5000", 87, "STRONG_FIT"],
-  ["Demo Vistula Electronics Sp. z o.o.", "vistula-demo.example", "Poland", "Electronics Manufacturing", "500–1000", 83, "STRONG_FIT"],
+  ["Demo AlpenPack Maschinenbau GmbH", "horizonpack-demo.example", "Austria", "Packaging", "1000–5000", 87, "STRONG_FIT"],
+  ["Demo Helvetic Electronics AG", "vistula-demo.example", "Switzerland", "Electronics Manufacturing", "500–1000", 83, "STRONG_FIT"],
   ["Demo Delta Motion Works B.V.", "deltamotion-demo.example", "Netherlands", "Industrial Equipment", "200–500", 74, "POTENTIAL_FIT"],
   ["Demo Morava Precision s.r.o.", "morava-demo.example", "Czech Republic", "Automotive Components", "100–200", 68, "POTENTIAL_FIT"],
   ["Demo Summit Assembly LLC", "summitassembly-demo.example", "United States", "Industrial Equipment", "200–500", 63, "POTENTIAL_FIT"],
   ["Demo Nordlicht Components AG", "nordlicht-demo.example", "Germany", "Electronics Manufacturing", "50–100", 55, "REVIEW"],
-  ["Demo Tulip Process Machines B.V.", "tulipprocess-demo.example", "Netherlands", "Packaging", "100–200", 46, "REVIEW"],
+  ["Demo Tirol Process Machines GmbH", "tulipprocess-demo.example", "Austria", "Packaging", "100–200", 46, "REVIEW"],
   ["Demo Baltic Handcraft Sp. z o.o.", "baltichandcraft-demo.example", "Poland", "Consumer Goods", "20–50", 32, "LOW_FIT"],
   ["Demo Alpine Services GmbH", "alpineservices-demo.example", "Germany", "Professional Services", "20–50", 18, "LOW_FIT"],
   ["Demo Bohemia Factory Lab s.r.o.", "bohemialab-demo.example", "Czech Republic", "Industrial Equipment", "100–200", null, "NOT_RESEARCHED"],
@@ -83,7 +83,7 @@ await db.transaction(async (tx) => {
     { id: id(12), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, productId: id(10), claim: "Compatible with common industrial camera interfaces.", evidence: "Product interface specification", approvedBy: DEMO_USER_ID, approvedAt: now, allowedRegions: ["GLOBAL"] },
     { id: id(13), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, productId: id(10), claim: "Custom integration is subject to technical evaluation.", evidence: "Standard commercial terms", approvedBy: DEMO_USER_ID, approvedAt: now, allowedRegions: ["GLOBAL"] },
   ]);
-  await tx.insert(icpProfiles).values({ id: id(20), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, name: "欧美工业制造 ICP", countries: ["Germany", "United States", "Netherlands", "Poland", "Czech Republic"], industries: ["Automotive Components", "Electronics Manufacturing", "Packaging", "Industrial Equipment"], employeeMin: 100, employeeMax: 5000, minimumScore: 60, hardExclusions: ["Consumer-only", "Services-only", "Sanctioned region"], scoringWeights: { hardRules: 40, businessSignals: 25, productMatch: 20, similarCaseMatch: 10, semanticJudgment: 5 } });
+  await tx.insert(icpProfiles).values({ id: id(20), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, name: "欧美工业制造 ICP", countries: ["Germany", "Austria", "Switzerland", "United States", "Netherlands", "Poland", "Czech Republic"], industries: ["Automotive Components", "Electronics Manufacturing", "Packaging", "Industrial Equipment"], employeeMin: 100, employeeMax: 5000, minimumScore: 60, hardExclusions: ["Consumer-only", "Services-only", "Sanctioned region"], scoringWeights: { hardRules: 40, businessSignals: 25, productMatch: 20, similarCaseMatch: 10, semanticJudgment: 5 } });
   await tx.insert(personas).values([
     { id: id(21), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, name: "Quality Director", department: "Quality", titles: ["Quality Director", "Head of Quality", "VP Quality"], seniority: "DIRECTOR", painPoints: ["Manual inspection variance", "Traceability", "False rejects"], decisionRole: "CHAMPION", recommendedCta: "Compare one inspection station" },
     { id: id(22), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, name: "Automation Manager", department: "Engineering", titles: ["Automation Manager", "Engineering Director", "Plant Manager"], seniority: "MANAGER", painPoints: ["Line integration", "Changeover time", "MES connectivity"], decisionRole: "TECHNICAL_BUYER", recommendedCta: "Share line requirements" },
@@ -190,14 +190,14 @@ await db.transaction(async (tx) => {
   await tx.insert(agentProfiles).values({
     id: id(1890), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, name: "Navo Growth Agent",
     purpose: "Discover and activate high-fit overseas accounts for industrial exporters.", status: "RUNNING",
-    operatingMode: "APPROVAL_CONTROLLED", knowledgeHealth: 82,
-    connectedTools: ["Account Database", "Website Research", "Product Knowledge", "ICP", "Approved Claims", "EmailSink", "Playbooks", "CRM Mirror"],
-    capabilities: ["RESEARCH", "QUALIFICATION", "DRAFT", "APPROVAL_REQUEST", "SEQUENCE_ENROLLMENT", "REPLY_CLASSIFICATION", "MEMORY_UPDATE", "TASK_CREATION"],
+    operatingMode: "AUTONOMOUS", knowledgeHealth: 82,
+    connectedTools: ["Mission Planner", "Account Database", "Website Fetch", "Company Research", "Signal Extraction", "Qualification", "Account Ranking", "Outreach Draft", "Task Creation", "Account Memory"],
+    capabilities: ["AUTONOMOUS_PLANNING", "ACCOUNT_SELECTION", "RESEARCH", "SIGNAL_EXTRACTION", "QUALIFICATION", "RANKING", "DRAFT", "MEMORY_UPDATE", "TASK_CREATION"],
     currentActivity: "Extracting expansion and hiring signals", lastHeartbeatAt: now,
   });
   await tx.insert(agentPreferences).values({
-    id: id(1891), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, profileId: id(1890), operatingMode: "APPROVAL_CONTROLLED",
-    approvalPolicy: "REQUIRED_FOR_OUTBOUND", dailySchedule: { timezone: "Asia/Shanghai", enabled: true, start: "08:00", end: "18:00" },
+    id: id(1891), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, profileId: id(1890), operatingMode: "AUTONOMOUS",
+    approvalPolicy: "DRAFT_ONLY", dailySchedule: { timezone: "Asia/Shanghai", enabled: true, start: "08:00", end: "18:00" },
     testMode: true, emailSinkEnabled: true, maxDailyActions: 50,
   });
 
@@ -209,19 +209,29 @@ await db.transaction(async (tx) => {
     { id: id(1904), name: "Re-engage historical DACH inquiries", type: "HISTORICAL_INQUIRY_REACTIVATION", objective: "Reassess historical DACH inquiries against current evidence.", desiredOutcome: "Recommend safe reactivation candidates.", status: "PAUSED", operatingMode: "APPROVAL_CONTROLLED", playId: id(700), inputSource: "HISTORICAL_INQUIRIES", targetCount: 12, processedCount: 4, qualifiedCount: 2, pendingApprovalCount: 0, progress: 33, currentStep: "Paused by operator", agentSummary: "The operator paused this mission after four account reviews.", maximumAccounts: 12, estimatedCostLimit: "0.60", actualCost: "0.02100", startedAt: daysAgo(4), dueAt: daysAgo(-7), completedAt: null },
   ];
   const seededBatchPlan = {
+    version: 1,
     name: "Qualify autumn trade show account",
     missionType: "OUTREACH_PREPARATION",
     objective: "Research one fictional trade show account and prepare a safe draft.",
-    targetDescription: "Demo Bohemia Factory Lab s.r.o.",
+    strategy: "Autonomously research, compare and prepare internal follow-through artifacts.",
+    targetDescription: "DACH industrial seed accounts.",
+    targetCriteria: { countries: ["Germany", "Austria", "Switzerland"], industries: ["Packaging", "Automotive Components"], companyTypes: ["Industrial manufacturer"], keywords: ["automation", "inspection"] },
     steps: [
-      ["load-knowledge", "LOAD_KNOWLEDGE", "Load knowledge", "Load seller knowledge and ICP."],
-      ["load-account", "LOAD_ACCOUNT", "Load account", "Load the selected demo account."],
-      ["research-website", "RESEARCH_WEBSITE", "Research website", "Fetch the local fixture and save literal evidence."],
+      ["load-knowledge", "LOAD_SELLER_KNOWLEDGE", "Load seller knowledge", "Load seller knowledge and ICP."],
+      ["select-accounts", "SELECT_TARGET_ACCOUNTS", "Select accounts", "Select matching demo accounts."],
+      ["fetch-websites", "FETCH_WEBSITE", "Fetch websites", "Fetch local website fixtures."],
+      ["research-companies", "RESEARCH_COMPANY", "Research companies", "Save structured research and literal evidence."],
       ["extract-signals", "EXTRACT_SIGNALS", "Extract signals", "Save evidence-linked sales signals."],
-      ["qualify-account", "QUALIFY_ACCOUNT", "Qualify account", "Apply authoritative deterministic qualification."],
-      ["generate-outreach", "GENERATE_OUTREACH", "Generate outreach", "Save a safe draft without sending."],
-    ].map(([stepId, type, title, description]) => ({ id: stepId!, type: type!, title: title!, description: description! })),
-    expectedOutputs: ["Company research", "Evidence-linked qualification", "Safe outreach draft"],
+      ["qualify-accounts", "QUALIFY_ACCOUNT", "Qualify accounts", "Apply authoritative deterministic qualification."],
+      ["rank-accounts", "RANK_ACCOUNTS", "Rank accounts", "Select the strongest account."],
+      ["discover-contacts", "DISCOVER_CONTACTS", "Discover contacts", "Find a named decision maker with literal public evidence."],
+      ["generate-outreach", "GENERATE_OUTREACH", "Generate outreach", "Save a safe English DRAFT for the selected contact without sending."],
+      ["create-task", "CREATE_TASK", "Create task", "Create an internal next-step task."],
+      ["update-memory", "UPDATE_MEMORY", "Update memory", "Persist sourced account memory."],
+      ["summarize-mission", "SUMMARIZE_MISSION", "Summarize mission", "Persist the final mission result."],
+    ].map(([stepId, type, title, description], index, all) => ({ id: stepId!, type: type!, title: title!, description: description!, status: "PENDING", dependsOn: index ? [all[index - 1]![0]!] : [] })),
+    stopConditions: ["Best account, DRAFT, task and memory are persisted", "Maximum 20 iterations", "Two consecutive steps fail"],
+    expectedOutputs: ["Compared accounts", "Evidence-linked qualification", "Best account", "Evidence-backed contact", "Safe outreach DRAFT", "Task", "Memory", "Mission summary"],
     assumptions: ["All website data comes from the repository-local demo fixture."],
   };
   await tx.insert(agentMissions).values(missionRows.map((mission, index) => ({ ...mission, workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, targetAccountId: [id(100), id(101), id(100), id(110), id(103)][index], plan: index === 3 ? seededBatchPlan : {}, provider: index === 3 ? "mock-ai" : null, model: index === 3 ? "deterministic-v1" : null, approvalPolicy: "REQUIRED_FOR_OUTBOUND", testMode: true, stopConditions: ["Stop on suppression conflict", "Never send without approval"], targetCriteria: { countries: ["Germany", "Austria", "Switzerland"], industries: ["Packaging", "Automotive Components"], persona: ["Quality Director", "Manufacturing Leader"] } })));

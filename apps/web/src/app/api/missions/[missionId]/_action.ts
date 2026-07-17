@@ -11,7 +11,6 @@ export async function missionAction(params: Promise<{ missionId: string }>, acti
     const result = await prepareMissionStart(DEMO_WORKSPACE_ID, DEMO_USER_ID, missionId);
     if (result.kind === "NOT_FOUND") return apiError("MISSION_NOT_FOUND", "Mission not found.", 404);
     if (result.kind === "INVALID_TRANSITION") return apiError("INVALID_MISSION_TRANSITION", `Cannot start a mission in ${result.status} status.`, 409);
-    if (result.kind === "TARGET_REQUIRED") return apiError("MISSION_TARGET_REQUIRED", "A mission must have exactly one workspace account before it can start.", 422);
     if (result.kind === "PLAN_REQUIRED") return apiError("MISSION_PLAN_REQUIRED", "Generate and save a mission plan before starting.", 422);
     if (result.kind === "CONFLICT") return apiError("MISSION_CONFLICT", "Mission changed while it was starting.", 409);
     try { await enqueueMission({ workspaceId: DEMO_WORKSPACE_ID, missionId }); }

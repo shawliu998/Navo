@@ -23,8 +23,8 @@ export async function POST(request: Request) {
   try {
     const selectedId = parsed.data.accountIds?.[0];
     const [account] = selectedId ? await db.select({ id: accounts.id, workspaceId: accounts.workspaceId, website: accounts.website, domain: accounts.domain }).from(accounts).where(and(eq(accounts.workspaceId, DEMO_WORKSPACE_ID), eq(accounts.id, selectedId))).limit(1) : [];
-    const accountGuard = guardMissionAccount({ accountIds: parsed.data.accountIds, workspaceId: DEMO_WORKSPACE_ID, account: account ?? null });
-    if (!accountGuard.ok) return apiError(accountGuard.code, accountGuard.message, 422);
+    const accountGuard = selectedId ? guardMissionAccount({ accountIds: [selectedId], workspaceId: DEMO_WORKSPACE_ID, account: account ?? null }) : null;
+    if (accountGuard && !accountGuard.ok) return apiError(accountGuard.code, accountGuard.message, 422);
     const generated = parsed.data.preview;
     const proposal = missionPlanProposal(generated.plan);
     const plays = await getPlays(DEMO_WORKSPACE_ID);
@@ -38,12 +38,13 @@ export async function POST(request: Request) {
       operatingMode: proposal.operatingMode,
       playId: play?.id,
       inputSource: proposal.inputSource,
-      targetAccountId: accountGuard.accountId,
-      targetCount: 1,
-      maximumAccounts: 1,
+      targetAccountId: accountGuard?.ok ? accountGuard.accountId : undefined,
+      targetCount: accountGuard?.ok ? 1 : 0,
+      maximumAccounts: 3,
+      maximumIterations: 20,
       estimatedCostLimit: proposal.estimatedCost,
       testMode: true,
-      stopConditions: ["Stop on suppression conflict", "Never send without approval"],
+      stopConditions: generated.plan.stopConditions,
       plan: generated.plan,
       provider: generated.provider,
       model: generated.model,

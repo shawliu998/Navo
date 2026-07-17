@@ -1,12 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import {
+  DeepSeekAIProvider,
   MockAIProvider,
+  accountRankingOutputSchema,
   buildOperationInstruction,
   companyResearchOutputSchema,
+  contactDiscoveryOutputSchema,
   conversationSummaryOutputSchema,
   memoryOutputSchema,
   messageOutputSchema,
   missionPlanSchema,
+  missionResultSchema,
   missionStepTypeSchema,
   missionTypeSchema,
   nextActionOutputSchema,
@@ -19,12 +24,23 @@ import {
   validateOutreachDraft,
 } from "./index";
 
+afterEach(() => vi.unstubAllGlobals());
+
 const validPlan = {
+  version: 1,
   name: "Research DACH manufacturers",
   objective: "Find evidence-backed industrial manufacturing accounts.",
   missionType: "ACCOUNT_RESEARCH",
+  strategy: "Research, qualify and compare bounded workspace accounts.",
   targetDescription: "Fictional DACH seed accounts.",
-  steps: [{ id: "load-knowledge", type: "LOAD_KNOWLEDGE", title: "Load knowledge", description: "Load the approved knowledge base." }],
+  targetCriteria: { countries: ["Germany"], industries: ["Packaging"], companyTypes: ["Manufacturer"], keywords: ["automation"] },
+  steps: [
+    { id: "load-knowledge", type: "LOAD_SELLER_KNOWLEDGE", title: "Load knowledge", description: "Load the approved knowledge base.", status: "PENDING", dependsOn: [] },
+    { id: "select", type: "SELECT_TARGET_ACCOUNTS", title: "Select", description: "Select accounts.", status: "PENDING", dependsOn: ["load-knowledge"] },
+    { id: "research", type: "RESEARCH_COMPANY", title: "Research", description: "Research companies.", status: "PENDING", dependsOn: ["select"] },
+    { id: "summary", type: "SUMMARIZE_MISSION", title: "Summary", description: "Summarize results.", status: "PENDING", dependsOn: ["research"] },
+  ],
+  stopConditions: ["Required outputs are persisted"],
   expectedOutputs: ["Company evidence"],
   assumptions: ["Only supplied public evidence is available."],
 };
@@ -32,7 +48,7 @@ const validPlan = {
 describe("structured AI contracts", () => {
   it("enforces the exact MissionPlan shape, mission types, and step types", () => {
     expect(missionTypeSchema.options).toEqual(["ACCOUNT_RESEARCH", "ACCOUNT_QUALIFICATION", "OUTREACH_PREPARATION", "REPLY_FOLLOW_UP"]);
-    expect(missionStepTypeSchema.options).toEqual(["LOAD_KNOWLEDGE", "LOAD_ACCOUNT", "RESEARCH_WEBSITE", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "GENERATE_OUTREACH"]);
+    expect(missionStepTypeSchema.options).toEqual(["LOAD_SELLER_KNOWLEDGE", "SELECT_TARGET_ACCOUNTS", "CREATE_TARGET_ACCOUNT", "FETCH_WEBSITE", "RESEARCH_COMPANY", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "RANK_ACCOUNTS", "DISCOVER_CONTACTS", "GENERATE_OUTREACH", "CREATE_TASK", "UPDATE_MEMORY", "SUMMARIZE_MISSION"]);
     expect(missionPlanSchema.safeParse(validPlan).success).toBe(true);
     expect(missionPlanSchema.safeParse({ ...validPlan, missionType: "EXPANSION_SIGNAL_OUTREACH" }).success).toBe(false);
     expect(missionPlanSchema.safeParse({ ...validPlan, steps: [{ ...validPlan.steps[0], type: "SEND_EMAIL" }] }).success).toBe(false);
@@ -52,7 +68,7 @@ describe("structured AI contracts", () => {
     expect(companyResearchOutputSchema.safeParse({ ...research, evidence: [{ ...research.evidence[0], sourceUrl: undefined }] }).success).toBe(false);
 
     const signals = { signals: [{ type: "QUALITY_INSPECTION", summary: "Quality focus", rationale: "The source discusses inspection.", evidenceUrls: ["https://nova-automation.example/source"], confidence: 0.9 }] };
-    expect(salesSignalTypeSchema.options).toEqual(["PRODUCT_FIT", "INDUSTRY_FIT", "EXPANSION", "AUTOMATION", "QUALITY_INSPECTION", "NEW_FACILITY", "HIRING", "UNKNOWN"]);
+    expect(salesSignalTypeSchema.options).toEqual(["PRODUCT_FIT", "INDUSTRY_FIT", "EXPANSION", "AUTOMATION", "QUALITY_INSPECTION", "NEW_FACILITY", "HIRING", "PARTNERSHIP", "UNKNOWN"]);
     expect(salesSignalOutputSchema.safeParse(signals).success).toBe(true);
     expect(salesSignalOutputSchema.safeParse({ signals: [{ ...signals.signals[0], type: "TRADE_SHOW" }] }).success).toBe(false);
     expect(salesSignalOutputSchema.safeParse({ ...signals, summary: "legacy field" }).success).toBe(false);
@@ -61,7 +77,7 @@ describe("structured AI contracts", () => {
   it("keeps OutreachDraft distinct from the legacy workflow message schema", () => {
     const outreach = outreachDraftSchema.parse({
       subject: "A question about inline inspection",
-      body: "Hi there, the public update is https://nova-automation.example/source. Would a short comparison be useful?",
+      body: `Hi there, I noticed the public update at https://nova-automation.example/source. Nova Automation works with industrial manufacturers evaluating inline vision inspection for defects, dimensions, and surface quality. Your growing production footprint suggests there may be value in comparing inspection requirements for one station, including camera interfaces, line integration, and traceability expectations. Would a brief conversation next week be useful to compare your current quality process and see whether a focused technical evaluation makes sense? I can keep the discussion practical and specific to your most important production line. Best, Nova Automation`,
       personalizationReason: "Cites a public update.", claimsUsed: [], evidenceUrls: ["https://nova-automation.example/source"], riskFlags: [],
     });
     expect(validateOutreachDraft(outreach).valid).toBe(true);
@@ -72,7 +88,7 @@ describe("structured AI contracts", () => {
   });
 
   it("puts prompt-injection, quote, secrecy, and sending guardrails in every operation instruction", () => {
-    for (const operation of ["mission-plan", "company-research", "signal-extraction", "qualification", "message"] as const) {
+    for (const operation of ["mission-plan", "mission-next-step", "mission-replan", "company-research", "signal-extraction", "qualification", "rank-accounts", "contact-discovery", "message", "mission-summary"] as const) {
       const instruction = buildOperationInstruction(operation);
       expect(instruction).toContain("untrusted");
       expect(instruction).toContain("Quotes must be literal excerpts from supplied input");
@@ -83,16 +99,45 @@ describe("structured AI contracts", () => {
 });
 
 describe("AI provider contract regressions", () => {
+  it("sends the requested JSON Schema to DeepSeek", async () => {
+    let requestBody: { messages?: Array<{ role?: string; content?: string }> } | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        id: "schema-test",
+        choices: [{ message: { content: JSON.stringify({ answer: "ok" }) } }],
+        usage: { prompt_tokens: 10, completion_tokens: 4 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
+
+    const schema = z.object({ answer: z.string() }).strict();
+    const result = await new DeepSeekAIProvider("test-key").generateStructured({
+      operation: "schema-contract-test",
+      systemInstruction: "Return the answer.",
+      input: { question: "status" },
+      outputSchema: schema,
+      promptVersion: "schema-test-v1",
+    });
+
+    expect(result.data).toEqual({ answer: "ok" });
+    expect(requestBody?.messages?.[0]?.content).toContain("JSON Schema");
+    expect(requestBody?.messages?.[0]?.content).toContain('"answer"');
+    expect(requestBody?.messages?.[0]?.content).toContain('"additionalProperties":false');
+  });
+
   it("returns a deterministic new mission plan and all newly shaped mock outputs", async () => {
     const provider = new MockAIProvider();
     const plan = await provider.generateStructured({ operation: "mission-plan", systemInstruction: "Plan.", input: { missionType: "OUTREACH_PREPARATION" }, outputSchema: missionPlanSchema, promptVersion: "test-v2" });
     const research = await provider.generateStructured({ operation: "company-research", systemInstruction: "Research.", input: {}, outputSchema: companyResearchOutputSchema, promptVersion: "test-v2" });
     const signals = await provider.generateStructured({ operation: "signal-extraction", systemInstruction: "Extract.", input: {}, outputSchema: salesSignalOutputSchema, promptVersion: "test-v2" });
+    const accountId = "00000000-0000-4000-8000-000000000101";
+    const contacts = await provider.generateStructured({ operation: "contact-discovery", systemInstruction: "Find contacts.", input: { accountId }, outputSchema: contactDiscoveryOutputSchema, promptVersion: "test-v2" });
     const draft = await provider.generateStructured({ operation: "message", systemInstruction: "Draft.", input: {}, outputSchema: outreachDraftSchema, promptVersion: "test-v2" });
     expect(plan.data.missionType).toBe("OUTREACH_PREPARATION");
-    expect(plan.data.steps[0]).toEqual(expect.objectContaining({ id: "load-knowledge", type: "LOAD_KNOWLEDGE" }));
+    expect(plan.data.steps[0]).toEqual(expect.objectContaining({ id: "load-knowledge", type: "LOAD_SELLER_KNOWLEDGE" }));
     expect(research.data).toEqual(expect.objectContaining({ website: "https://nova-automation.example" }));
     expect(signals.data.signals[0]).toEqual(expect.objectContaining({ type: "EXPANSION", rationale: expect.any(String) }));
+    expect(contacts.data.candidates[0]).toEqual(expect.objectContaining({ fullName: "Alex Morgan", department: "QUALITY", email: null }));
     expect(draft.data).toEqual(expect.objectContaining({ subject: expect.any(String), evidenceUrls: ["https://nova-automation.example/demo-source-4"] }));
   });
 
@@ -106,6 +151,17 @@ describe("AI provider contract regressions", () => {
   it("returns schema-validated qualification output without paid API calls", async () => {
     const result = await new MockAIProvider().generateStructured({ operation: "qualification", systemInstruction: "Use evidence only.", input: { evidenceIds: ["evidence-1"] }, outputSchema: qualificationOutputSchema, promptVersion: "test-v2" });
     expect(result.data).toMatchObject({ score: 84, status: "STRONG_FIT", evidenceIds: ["evidence-1"] });
+  });
+
+  it("ranks accounts deterministically and creates a schema-valid mission summary", async () => {
+    const provider = new MockAIProvider();
+    const first = "00000000-0000-4000-8000-000000000101";
+    const second = "00000000-0000-4000-8000-000000000102";
+    const ranking = await provider.generateStructured({ operation: "rank-accounts", systemInstruction: "Rank.", input: { accounts: [{ accountId: first, qualificationScore: 72 }, { accountId: second, qualificationScore: 91 }] }, outputSchema: accountRankingOutputSchema, promptVersion: "rank-v1" });
+    expect(ranking.data.bestAccountId).toBe(second);
+    expect(ranking.data.rankedAccounts.map((item) => item.accountId)).toEqual([second, first]);
+    const summary = await provider.generateStructured({ operation: "mission-summary", systemInstruction: "Summarize.", input: { accountsInvestigated: 2, bestAccountId: second, outreachDraftId: null, taskIds: [], memoryFactIds: [] }, outputSchema: missionResultSchema, promptVersion: "summary-v1" });
+    expect(summary.data).toMatchObject({ accountsInvestigated: 2, bestAccountId: second, outreachDraftId: null });
   });
 
   it("keeps every deterministic reply operation schema-compatible", async () => {

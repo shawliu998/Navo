@@ -1,21 +1,35 @@
 # Navo
 
-Navo is an AI Sales Agent Workspace for industrial exporters. It connects seller knowledge, evidence-backed account research, deterministic qualification and approval-ready outreach drafts with reply intelligence, account memory, next-best-action tasks and a lightweight CRM Mirror.
+Navo is an autonomous AI growth agent for industrial B2B sales. A user gives Navo a natural-language objective; Navo plans the work, selects and researches accounts, extracts evidence-backed opportunities, qualifies and ranks them, saves an English outreach draft, creates the next task, updates account memory and completes the Mission.
 
-## MVP flow
+## Autonomous Mission flow
 
 ```text
-Knowledge → Mission → Account target → Bounded website research
-→ Literal Evidence + Signals → Deterministic Qualification
-→ DRAFT Outreach → Operator review (no sending Approval) → EmailSink simulation
-→ Reply Classification → Conversation Summary → Account Memory
-→ Next Best Action → Manual Task → CRM Mirror → Analytics
+Natural-language objective → Mission Planner → Structured Plan
+→ Select target Accounts → Bounded website fetch → Company Research
+→ Literal Evidence + Opportunity Signals → Explainable Qualification
+→ Account Ranking → English DRAFT → Next-step Task
+→ Account Memory → Mission Result
 ```
 
-A Mission is planned by the web layer and consumed by the BullMQ worker. The worker loads
-seller knowledge and ICP constraints, researches a bounded account website, persists literal
-source evidence, extracts evidence-linked signals, applies deterministic qualification rules,
-and saves an outreach message with `DRAFT` status.
+A Mission is planned on the server and consumed by the BullMQ worker. On every iteration the
+executor observes the persisted Plan and Working Memory, requests a schema-validated next-step
+decision, calls one registered tool, persists its output and decides whether to continue. The
+default bound is 20 iterations. Public Agent Decision summaries are recorded without exposing
+hidden reasoning.
+
+Registered tools are Load Seller Knowledge, Select Target Accounts, Create Target Account,
+Website Fetch, Research Company, Extract Signals, Qualify Account, Rank Accounts, Generate
+Outreach, Create Task, Update Memory and Summarize Mission.
+
+Demo objective:
+
+```text
+Find high-fit packaging and automotive component manufacturers in DACH,
+research their automation and quality-inspection needs,
+select the strongest opportunity,
+and prepare a concise English outreach draft.
+```
 
 ## Mission follow-through
 
@@ -31,7 +45,9 @@ failed history remains intact and PostgreSQL allows only one non-terminal retry 
 Mission. Queue jobs still contain IDs only. The current Mission runner does not accumulate
 provider usage, so actual Mission cost is shown as **Not measured**; plan cost is an estimate.
 
-The MVP deliberately stops short of becoming a complete CRM, customer-support product, WebChat platform or unrestricted automated sender.
+This is a local demonstration, not a production system. It does not send real email, modify an
+external CRM, search LinkedIn or contact databases, produce quotes or contracts, run arbitrary
+code, provide multi-agent collaboration or claim production-grade security.
 
 ## Stack
 
@@ -41,13 +57,18 @@ The MVP deliberately stops short of becoming a complete CRM, customer-support pr
 - Redis and BullMQ
 - Vitest and Playwright
 
-## AI and email safety
+## Mock and DeepSeek modes
 
-`MockAIProvider` is the default and recommended deterministic mode for local development,
-seeded data and tests. The local demo does not need a network call, paid credential or
-DeepSeek account. `DeepSeekAIProvider` is enabled only when `AI_PROVIDER=deepseek` is set
-explicitly and a server-only `DEEPSEEK_API_KEY` is configured. The repository does not claim
-that paid DeepSeek calls have been verified.
+`AI_PROVIDER=mock` is the default deterministic mode. It needs no API key or model call, and
+seeded `.example` websites are read from repository-local HTML fixtures. It is used by tests.
+
+Set `AI_PROVIDER=deepseek`, `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` and `DEEPSEEK_MODEL` to
+use the existing server-only DeepSeek adapter. Planner, replan, research, signal,
+qualification, ranking, draft and summary outputs all pass through Zod, and the adapter sends
+the requested JSON Schema with every structured call. Planner, company-research and outreach
+contracts have live DeepSeek smoke coverage; a complete paid-provider end-to-end run is not
+part of the deterministic test suite. Linear next-step selection is handled in code to avoid
+an unnecessary model call for every mission step.
 
 Website content is untrusted input. Research applies SSRF, response-size, page-size,
 redirect and bounded-page limits; evidence quotes must be literal excerpts from fetched
@@ -58,28 +79,35 @@ events are simulations for exercising downstream workflows.
 
 ## Local setup
 
-The following commands target a disposable local demo PostgreSQL database. `db:migrate` and
-`db:seed` modify that database; do not run them against data that must be preserved.
+The fastest disposable-demo path is:
 
 ```bash
-pnpm install
-docker compose up -d
-pnpm db:migrate
-pnpm db:seed
+pnpm run bootstrap
+pnpm run dev:mock
 ```
 
-Then run the web app and worker in separate terminals:
+`bootstrap` installs dependencies, starts PostgreSQL and Redis, waits for them, runs
+migrations, creates `.env.local` from `.env.example` only when it is missing, and seeds only
+an empty workspace. It does not replace an existing environment file or reset existing data.
+Open `http://localhost:3100`, choose **DACH industrial outreach**, review the populated
+mission, and select **Create & start**.
+
+In another terminal, check the running Web app, database, Redis and BullMQ worker with:
 
 ```bash
-pnpm dev
+pnpm run health
 ```
 
-```bash
-pnpm --filter @navo/worker dev
-```
+`pnpm run dev:mock` explicitly forces the deterministic golden path without changing
+`.env.local`. Use `pnpm dev` when you want the provider configured in `.env.local`, such as
+DeepSeek. `pnpm run doctor` performs environment and dependency checks without starting the
+app, and `pnpm run dev:raw` bypasses the preflight when debugging Turbo itself. Local
+development also detects synthetic `198.18/15` DNS proxies so real public websites remain
+researchable without allowing literal benchmark-IP URLs.
 
-Use `AI_PROVIDER=mock`,
-`EMAIL_PROVIDER=sink` and `EMAIL_TEST_MODE=true` from `.env.example` for the local demo.
+The manual equivalent is `pnpm install`, `docker compose up -d`, `pnpm db:migrate`, and
+`pnpm db:seed`. These commands target the local demo PostgreSQL database; `db:seed` changes
+that database and should not be run against data that must be preserved.
 
 ### Existing ExportPlay development databases
 

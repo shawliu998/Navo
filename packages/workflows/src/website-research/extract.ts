@@ -13,7 +13,8 @@ const removalSelectors = [
   "script", "style", "noscript", "template", "svg", "iframe", "object", "embed", "canvas", "audio", "video",
   "[hidden]", "[aria-hidden='true']",
 ];
-const preferredKeywords = ["about", "company", "products", "product", "solutions", "solution", "industries", "industry"];
+const companyKeywords = ["about", "company", "products", "product", "solutions", "solution", "industries", "industry"];
+const contactKeywords = ["management", "leadership", "executive", "board", "team", "people", "contact", "quality", "production", "engineering", "operations", "procurement", "about", "company"];
 
 function cleanText(value: string, maxLength: number): string {
   return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, maxLength);
@@ -32,12 +33,13 @@ function visibleText(node: Node): string {
   return pieces.join(" ");
 }
 
-function linkScore(url: URL, anchorText: string): number {
+function linkScore(url: URL, anchorText: string, focus: "COMPANY" | "CONTACTS"): number {
   const haystack = `${url.pathname} ${anchorText}`.toLowerCase();
-  return preferredKeywords.reduce((score, keyword) => score + (haystack.includes(keyword) ? 1 : 0), 0);
+  const keywords = focus === "CONTACTS" ? contactKeywords : companyKeywords;
+  return keywords.reduce((score, keyword, index) => score + (haystack.includes(keyword) ? keywords.length - index : 0), 0);
 }
 
-export function extractWebsiteHtml(html: string, pageUrl: URL, maxTextLength: number): ExtractedHtml {
+export function extractWebsiteHtml(html: string, pageUrl: URL, maxTextLength: number, focus: "COMPANY" | "CONTACTS" = "COMPANY"): ExtractedHtml {
   const root = parse(html, { comment: false });
   const title = root.querySelector("title")?.text.trim() || null;
   const description = root.querySelectorAll("meta")
@@ -58,7 +60,7 @@ export function extractWebsiteHtml(html: string, pageUrl: URL, maxTextLength: nu
       const url = new URL(href, pageUrl);
       url.hash = "";
       if (!isSameWebsiteDomain(pageUrl, url) || url.toString() === pageUrl.toString()) return;
-      const score = linkScore(url, visibleText(anchor));
+      const score = linkScore(url, visibleText(anchor), focus);
       if (score > 0) links.push({ url, score, order });
     } catch {
       // Malformed and non-URL href values are inert data and are ignored.

@@ -16,6 +16,7 @@ import {
 import { DEMO_WORKSPACE_ID, getAccounts, getAgentStatus, getOverview } from "@navo/db/queries";
 import { Badge, MetricCard, PageHeader, StatusBadge } from "@navo/ui";
 import { AgentCommandComposer } from "@/components/agent-command-composer";
+import { QuickStartCard } from "@/components/quick-start-card";
 
 export const metadata = { title: "Command Center" };
 
@@ -77,6 +78,8 @@ export default async function OverviewPage() {
       </section>
 
       <AgentCommandComposer accounts={accounts.map(({ id, name, website, domain, country, industry }) => ({ id, name, website, domain, country, industry }))} />
+
+      <QuickStartCard />
 
       <section className="metrics-grid" style={{ gridTemplateColumns: "repeat(6,minmax(120px,1fr))", marginTop: 14 }}>
         <MetricCard label="Target accounts" value={metrics.imported} icon={<Building2 size={14} />} helper={`${metrics.researched} researched`} />

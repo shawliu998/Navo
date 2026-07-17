@@ -104,7 +104,13 @@ test.describe.serial("Navo account intelligence and reply loop", () => {
   test("CSV import maps and deduplicates accounts", async ({ page }) => {
     await page.goto("/app/accounts/import");
     await expect(page.getByRole("heading", { name: "Import target accounts" })).toBeVisible();
+    const imported = page.waitForResponse((response) => response.url().endsWith("/api/accounts/import") && response.request().method() === "POST");
     await page.getByRole("button", { name: /Import 2 rows/ }).click();
-    await expect(page.getByText(/Import completed: 2 created/)).toBeVisible();
+    const response = await imported;
+    expect(response.ok()).toBe(true);
+    const payload = await response.json() as { data: { created: number; updated: number; skipped: number } };
+    expect(payload.data.created + payload.data.updated).toBe(2);
+    expect(payload.data.skipped).toBe(0);
+    await expect(page.getByText(`Import completed: ${payload.data.created} created, ${payload.data.updated} updated, 0 skipped.`)).toBeVisible();
   });
 });

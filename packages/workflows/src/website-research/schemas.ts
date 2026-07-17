@@ -3,6 +3,7 @@ import { z } from "zod";
 export const websiteResearchInputSchema = z.object({
   accountId: z.string().trim().min(1).max(200),
   websiteUrl: z.string().trim().min(1).max(2_048),
+  focus: z.enum(["COMPANY", "CONTACTS"]).default("COMPANY"),
 }).strict();
 
 export const websiteResearchPageSchema = z.object({
@@ -19,7 +20,7 @@ export const websiteResearchDataSchema = z.object({
   inputUrl: z.string(),
   finalUrl: z.string().url(),
   fetchedAt: z.string().datetime(),
-  pages: z.array(websiteResearchPageSchema).min(1).max(3),
+  pages: z.array(websiteResearchPageSchema).min(1).max(5),
 });
 
 export const websiteResearchErrorCodeSchema = z.enum([
@@ -51,7 +52,7 @@ export const websiteResearchOutputSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(false), error: websiteResearchErrorSchema }),
 ]);
 
-export type WebsiteResearchInput = z.infer<typeof websiteResearchInputSchema>;
+export type WebsiteResearchInput = z.input<typeof websiteResearchInputSchema>;
 export type WebsiteResearchPage = z.infer<typeof websiteResearchPageSchema>;
 export type WebsiteResearchData = z.infer<typeof websiteResearchDataSchema>;
 export type WebsiteResearchError = z.infer<typeof websiteResearchErrorSchema>;

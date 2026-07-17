@@ -1,11 +1,11 @@
 import { missionPlanSchema } from "@navo/agents";
 import { z } from "zod";
 
-/** The demo accepts only the deterministic provider identity emitted by preview. */
+/** Preview identity is server-produced; both deterministic Mock and configured DeepSeek are accepted. */
 export const mockMissionPreviewSchema = z.object({
   plan: missionPlanSchema,
-  provider: z.literal("mock-ai"),
-  model: z.literal("deterministic-v1"),
+  provider: z.string().trim().min(1).max(100),
+  model: z.string().trim().min(1).max(200),
 }).strict();
 
 export type MockMissionPreview = z.infer<typeof mockMissionPreviewSchema>;

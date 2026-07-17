@@ -10,8 +10,8 @@ export function isLocalDemoWebsite(websiteUrl: string) {
     return false;
   }
 }
-export async function loadLocalWebsiteResearchFixture(accountId: string, websiteUrl: string, now = new Date()): Promise<WebsiteResearchData> {
-  if (!isLocalDemoWebsite(websiteUrl)) throw new Error("LOCAL_WEBSITE_FIXTURE_NOT_AVAILABLE: This URL is not a seeded demo website.");
+export async function loadLocalWebsiteResearchFixture(accountId: string, websiteUrl: string, now = new Date(), options: { allowAnyBase?: boolean } = {}): Promise<WebsiteResearchData> {
+  if (!options.allowAnyBase && !isLocalDemoWebsite(websiteUrl)) throw new Error("LOCAL_WEBSITE_FIXTURE_NOT_AVAILABLE: This URL is not a seeded demo website.");
   const base = new URL(websiteUrl);
   const homeUrl = new URL("/", base);
   const aboutUrl = new URL("/about", base);
