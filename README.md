@@ -12,11 +12,21 @@ Natural-language objective → Mission Planner → Structured Plan
 → Account Memory → Mission Result
 ```
 
-A Mission is planned on the server and consumed by the BullMQ worker. On every iteration the
-executor observes the persisted Plan and Working Memory, requests a schema-validated next-step
-decision, calls one registered tool, persists its output and decides whether to continue. The
-default bound is 20 iterations. Public Agent Decision summaries are recorded without exposing
-hidden reasoning.
+A Mission is planned on the server and consumed by the BullMQ worker. The immutable initial
+specification stays in `agent_missions.plan`; `agent_plan_steps` is the execution truth. Ordinary
+step scheduling is deterministic, while bounded structured decisions are made after website,
+qualification and ranking checkpoints. The default bound is 20 iterations.
+The planner receives one schema-aware repair attempt before an observable deterministic fallback.
+Account selection starts with a small batch: website checkpoints can add replacement candidates,
+and qualification checkpoints can add candidates and re-enter Fetch → Research → Signals →
+Qualification. Expansion never exceeds the Mission account or iteration bounds.
+
+An explicitly enabled Mission chain adds a second bounded loop across Missions. After a Mission
+completes, a structured AI decision either stops or creates exactly one successor. Discovery can
+progress into outreach preparation for the strongest qualified account; a no-match result can
+continue with unused workspace accounts. Every successor stores its parent, root and depth,
+PostgreSQL permits only one child per parent, and the chain stops at `maximumContinuations`.
+The workspace pause defers successor creation; resuming Navo requeues eligible deferred decisions.
 
 Registered tools are Load Seller Knowledge, Select Target Accounts, Create Target Account,
 Website Fetch, Research Company, Extract Signals, Qualify Account, Rank Accounts, Generate
@@ -63,12 +73,15 @@ code, provide multi-agent collaboration or claim production-grade security.
 seeded `.example` websites are read from repository-local HTML fixtures. It is used by tests.
 
 Set `AI_PROVIDER=deepseek`, `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` and `DEEPSEEK_MODEL` to
-use the existing server-only DeepSeek adapter. Planner, replan, research, signal,
+use the existing server-only DeepSeek adapter. Planner, checkpoint, research, signal,
 qualification, ranking, draft and summary outputs all pass through Zod, and the adapter sends
 the requested JSON Schema with every structured call. Planner, company-research and outreach
 contracts have live DeepSeek smoke coverage; a complete paid-provider end-to-end run is not
 part of the deterministic test suite. Linear next-step selection is handled in code to avoid
-an unnecessary model call for every mission step.
+an unnecessary model call for every mission step. After seeding local demo data, run a paid live
+opportunity-discovery smoke test with `pnpm smoke:deepseek`; it creates and executes one Mission
+and prints its ID, planner mode, outcome and summary. Set `DEEPSEEK_SMOKE_CHAIN=1` to also exercise
+the real continuation decision, successor planning and successor execution.
 
 Website content is untrusted input. Research applies SSRF, response-size, page-size,
 redirect and bounded-page limits; evidence quotes must be literal excerpts from fetched

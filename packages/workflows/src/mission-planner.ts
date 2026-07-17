@@ -4,14 +4,19 @@ import {
   missionStepTypeSchema,
   type AIProvider,
   type MissionPlan,
+  type MissionStepType,
   type MissionType,
   type StructuredGenerationResult,
 } from "@navo/agents";
 
+export type PlannerMode = "AI" | "DETERMINISTIC_FALLBACK";
+export type MissionPlannerResult = StructuredGenerationResult<MissionPlan> & { plannerMode: PlannerMode; fallbackReason?: string };
+
 export const missionPlannerPrompt = buildOperationInstruction(
   "mission-plan",
-  `Create a plan with 4 to 12 dependency-linked steps. Use only these registered types: ${missionStepTypeSchema.options.join(", ")}.
-For the autonomous sales golden path include seller knowledge, account selection, website fetch, company research, signals, qualification, ranking, an English DRAFT, an internal task, memory update and final summary. CREATE_TARGET_ACCOUNT is optional and only valid when a named company plus website is supplied. Never add email sending.`,
+  `Create a bounded plan with 4 to 12 dependency-linked steps. Use each registered type at most once and use only: ${missionStepTypeSchema.options.join(", ")}.
+Dependencies may reference earlier steps only. The final step must be SUMMARIZE_MISSION. CREATE_TARGET_ACCOUNT may replace SELECT_TARGET_ACCOUNTS only when a company name and website are explicitly supplied.
+OPPORTUNITY_DISCOVERY researches, qualifies and ranks accounts but does not require contacts, outreach or a task. OUTREACH_PREPARATION must generate an English DRAFT, create a task, update memory and summarize; DISCOVER_CONTACTS is optional. Never add email sending.`,
 );
 
 export type MissionPlannerInput = {
@@ -33,117 +38,141 @@ export type MissionPlannerInput = {
   availableTools?: string[];
   maximumIterations?: number;
   targetCriteria?: MissionPlan["targetCriteria"];
+  explicitCompany?: { name: string; website: string; country?: string; industry?: string };
 };
 
-const goldenPath = [
-  "LOAD_SELLER_KNOWLEDGE",
-  "SELECT_TARGET_ACCOUNTS",
-  "FETCH_WEBSITE",
-  "RESEARCH_COMPANY",
-  "EXTRACT_SIGNALS",
-  "QUALIFY_ACCOUNT",
-  "RANK_ACCOUNTS",
-  "DISCOVER_CONTACTS",
-  "GENERATE_OUTREACH",
-  "CREATE_TASK",
-  "UPDATE_MEMORY",
-  "SUMMARIZE_MISSION",
-] as const;
-
-const goldenStepDetails: Record<(typeof goldenPath)[number], { id: string; title: string; description: string }> = {
+const details: Record<MissionStepType, { id: string; title: string; description: string }> = {
   LOAD_SELLER_KNOWLEDGE: { id: "load-knowledge", title: "Load seller knowledge", description: "Load products, capabilities, ICP and approved claims." },
-  SELECT_TARGET_ACCOUNTS: { id: "select-accounts", title: "Select target accounts", description: "Select matching accounts from the workspace." },
+  SELECT_TARGET_ACCOUNTS: { id: "select-accounts", title: "Select target accounts", description: "Select bounded matching accounts from the workspace." },
+  CREATE_TARGET_ACCOUNT: { id: "create-target", title: "Create target account", description: "Create the explicitly supplied company and website as a mission target." },
   FETCH_WEBSITE: { id: "fetch-websites", title: "Fetch company websites", description: "Fetch bounded public pages or local fixtures." },
   RESEARCH_COMPANY: { id: "research-companies", title: "Research companies", description: "Create structured research and literal evidence." },
   EXTRACT_SIGNALS: { id: "extract-signals", title: "Extract opportunity signals", description: "Extract evidence-linked sales signals." },
-  QUALIFY_ACCOUNT: { id: "qualify-accounts", title: "Qualify accounts", description: "Apply deterministic qualification scoring." },
-  RANK_ACCOUNTS: { id: "rank-accounts", title: "Rank accounts", description: "Compare qualified accounts and select the strongest opportunity." },
-  DISCOVER_CONTACTS: { id: "discover-contacts", title: "Discover decision makers", description: "Find evidence-backed production, quality, automation or engineering contacts for the best account." },
-  GENERATE_OUTREACH: { id: "generate-outreach", title: "Generate outreach draft", description: "Prepare an English DRAFT without sending it." },
+  QUALIFY_ACCOUNT: { id: "qualify-accounts", title: "Qualify accounts", description: "Apply explainable deterministic qualification scoring." },
+  RANK_ACCOUNTS: { id: "rank-accounts", title: "Rank accounts", description: "Compare viable accounts and select the strongest opportunity." },
+  DISCOVER_CONTACTS: { id: "discover-contacts", title: "Discover decision makers", description: "Find evidence-backed public contacts for the best account." },
+  GENERATE_OUTREACH: { id: "generate-outreach", title: "Generate outreach draft", description: "Prepare a concise English DRAFT without sending it." },
   CREATE_TASK: { id: "create-task", title: "Create next-step task", description: "Create an internal review task." },
   UPDATE_MEMORY: { id: "update-memory", title: "Update account memory", description: "Persist sourced account facts." },
-  SUMMARIZE_MISSION: { id: "summarize-mission", title: "Summarize mission", description: "Create the final persisted mission result." },
+  SUMMARIZE_MISSION: { id: "summarize-mission", title: "Summarize mission", description: "Persist the final outcome and recommended actions." },
 };
 
-export function createDeterministicMissionPlan(input: MissionPlannerInput, fallbackReason: string): MissionPlan {
-  const targetCriteria = input.targetCriteria ?? {
-    countries: input.sellerKnowledge?.targetRegions ?? [],
-    industries: input.sellerKnowledge?.targetIndustries ?? [],
-    companyTypes: ["Industrial B2B company"],
-    keywords: ["automation", "quality", "production"],
-  };
-  return missionPlanSchema.parse({
-    version: 1,
-    name: input.name ?? "Autonomous account research",
-    missionType: input.missionType ?? "OUTREACH_PREPARATION",
-    objective: input.objective,
-    strategy: "Use the bounded autonomous sales golden path and persist every artifact before advancing.",
-    targetDescription: input.targetDescription ?? "Select and compare matching industrial B2B accounts from the current workspace.",
-    targetCriteria,
-    steps: goldenPath.map((type, index) => ({
-      ...goldenStepDetails[type], type, status: "PENDING" as const,
-      dependsOn: index ? [goldenStepDetails[goldenPath[index - 1]!]!.id] : [],
-    })),
-    stopConditions: ["Best account, draft, task and memory are persisted", "Maximum iterations reached", "No executable step remains"],
-    expectedOutputs: ["Compared target accounts", "Evidence and signals", "Qualifications and ranking", "Evidence-backed contact", "English DRAFT", "Internal task", "Account memory", "Mission summary"],
-    assumptions: [`Planner fallback used after structured generation failed: ${fallbackReason.slice(0, 350)}`, "Outreach remains a DRAFT and is never sent."],
-  });
+const discoveryRequired: MissionStepType[] = [
+  "LOAD_SELLER_KNOWLEDGE", "FETCH_WEBSITE", "RESEARCH_COMPANY", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "RANK_ACCOUNTS", "UPDATE_MEMORY", "SUMMARIZE_MISSION",
+];
+const outreachRequired: MissionStepType[] = [...discoveryRequired.slice(0, -2), "GENERATE_OUTREACH", "CREATE_TASK", "UPDATE_MEMORY", "SUMMARIZE_MISSION"];
+
+function normalizedMissionType(type: MissionType | undefined): MissionType {
+  return type ?? "OUTREACH_PREPARATION";
+}
+
+function isOutreach(type: MissionType) {
+  return type === "OUTREACH_PREPARATION";
 }
 
 export function assertExecutableMissionPlan(plan: MissionPlan) {
-  if (plan.steps.length !== goldenPath.length) {
-    throw new Error(`MISSION_PLAN_INVALID_LENGTH: expected ${goldenPath.length} golden-path steps.`);
+  const types = plan.steps.map((step) => step.type);
+  const duplicateType = types.find((type, index) => types.indexOf(type) !== index);
+  if (duplicateType) throw new Error(`MISSION_PLAN_DUPLICATE_STEP_TYPE: ${duplicateType}.`);
+  if (plan.steps.some((step) => step.status !== "PENDING")) throw new Error("MISSION_PLAN_INVALID_STATUS: all initial steps must be PENDING.");
+  if (types.at(-1) !== "SUMMARIZE_MISSION") throw new Error("MISSION_PLAN_SUMMARY_REQUIRED: SUMMARIZE_MISSION must be the final step.");
+  const targetSteps = types.filter((type) => type === "SELECT_TARGET_ACCOUNTS" || type === "CREATE_TARGET_ACCOUNT");
+  if (targetSteps.length !== 1) throw new Error("MISSION_PLAN_TARGET_STEP_REQUIRED: include exactly one target selection or creation step.");
+  const required = isOutreach(plan.missionType) ? outreachRequired : discoveryRequired;
+  for (const type of required) if (!types.includes(type)) throw new Error(`MISSION_PLAN_REQUIRED_STEP_MISSING: ${type}.`);
+  if (!isOutreach(plan.missionType) && types.some((type) => type === "GENERATE_OUTREACH" || type === "CREATE_TASK")) {
+    throw new Error("MISSION_PLAN_DISCOVERY_SCOPE_INVALID: discovery plans must not require outreach or a task.");
   }
-  for (const [index, expectedType] of goldenPath.entries()) {
-    const step = plan.steps[index];
-    if (!step || step.type !== expectedType) {
-      throw new Error(`MISSION_PLAN_INVALID_SEQUENCE: expected ${expectedType} at position ${index + 1}.`);
-    }
-    if (step.status !== "PENDING") {
-      throw new Error(`MISSION_PLAN_INVALID_STATUS: ${step.id} must start PENDING.`);
-    }
-    const expectedDependencies = index === 0 ? [] : [plan.steps[index - 1]!.id];
-    if (step.dependsOn.length !== expectedDependencies.length || step.dependsOn.some((dependency, dependencyIndex) => dependency !== expectedDependencies[dependencyIndex])) {
-      throw new Error(`MISSION_PLAN_INVALID_DEPENDENCY: ${step.id} must depend only on the preceding golden-path step.`);
-    }
+  let previousIndex = -1;
+  const ordered = ["LOAD_SELLER_KNOWLEDGE", targetSteps[0]!, "FETCH_WEBSITE", "RESEARCH_COMPANY", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "RANK_ACCOUNTS", ...(types.includes("DISCOVER_CONTACTS") ? ["DISCOVER_CONTACTS"] : []), ...(isOutreach(plan.missionType) ? ["GENERATE_OUTREACH", "CREATE_TASK"] : []), "UPDATE_MEMORY", "SUMMARIZE_MISSION"] as MissionStepType[];
+  for (const type of ordered) {
+    const index = types.indexOf(type);
+    if (index <= previousIndex) throw new Error(`MISSION_PLAN_INVALID_SEQUENCE: ${type} is out of order.`);
+    previousIndex = index;
   }
   return plan;
 }
 
-export async function planMission(ai: AIProvider, input: MissionPlannerInput): Promise<StructuredGenerationResult<MissionPlan>> {
+function assertPlanMatchesPlannerInput(plan: MissionPlan, input: MissionPlannerInput) {
+  const executable = assertExecutableMissionPlan(plan);
+  if (executable.steps.some((step) => step.type === "CREATE_TARGET_ACCOUNT") && !input.explicitCompany) {
+    throw new Error("MISSION_PLAN_CREATE_TARGET_NOT_ALLOWED: CREATE_TARGET_ACCOUNT requires an explicitly supplied company name and website.");
+  }
+  return executable;
+}
+
+export function createDeterministicMissionPlan(input: MissionPlannerInput, fallbackReason: string): MissionPlan {
+  const missionType = normalizedMissionType(input.missionType);
+  const targetType: MissionStepType = input.explicitCompany ? "CREATE_TARGET_ACCOUNT" : "SELECT_TARGET_ACCOUNTS";
+  const types: MissionStepType[] = isOutreach(missionType)
+    ? ["LOAD_SELLER_KNOWLEDGE", targetType, "FETCH_WEBSITE", "RESEARCH_COMPANY", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "RANK_ACCOUNTS", "DISCOVER_CONTACTS", "GENERATE_OUTREACH", "CREATE_TASK", "UPDATE_MEMORY", "SUMMARIZE_MISSION"]
+    : ["LOAD_SELLER_KNOWLEDGE", targetType, "FETCH_WEBSITE", "RESEARCH_COMPANY", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "RANK_ACCOUNTS", "UPDATE_MEMORY", "SUMMARIZE_MISSION"];
+  const targetCriteria = input.targetCriteria ?? {
+    countries: input.sellerKnowledge?.targetRegions ?? [], industries: input.sellerKnowledge?.targetIndustries ?? [], companyTypes: ["Industrial B2B company"], keywords: ["automation", "quality", "production"],
+  };
+  return assertExecutableMissionPlan(missionPlanSchema.parse({
+    version: 1,
+    name: input.name ?? (isOutreach(missionType) ? "Autonomous outreach preparation" : "Autonomous opportunity discovery"),
+    missionType,
+    objective: input.objective,
+    strategy: "Execute registered tools deterministically and use bounded decisions after website, qualification and ranking checkpoints.",
+    targetDescription: input.targetDescription ?? "Select and compare matching industrial B2B accounts from the workspace.",
+    targetCriteria,
+    steps: types.map((type, index) => ({ ...details[type], type, status: "PENDING", dependsOn: index ? [details[types[index - 1]!]!.id] : [], input: type === "CREATE_TARGET_ACCOUNT" ? input.explicitCompany : undefined })),
+    stopConditions: ["Required artifacts are persisted", "Maximum iterations reached", "No bounded candidate remains"],
+    expectedOutputs: isOutreach(missionType) ? ["Evidence", "Signals", "Qualification", "Ranking", "Optional public contact", "English DRAFT", "Task", "Memory", "Outcome summary"] : ["Evidence", "Signals", "Qualification", "Ranking or no-match outcome", "Memory", "Outcome summary"],
+    assumptions: [`Deterministic fallback used: ${fallbackReason.slice(0, 350)}`, "Outreach is saved as DRAFT and is never sent."],
+  }));
+}
+
+export async function planMission(ai: AIProvider, input: MissionPlannerInput): Promise<MissionPlannerResult> {
   const startedAt = Date.now();
+  const missionType = normalizedMissionType(input.missionType);
+  const plannerInput = { ...input, missionType, availableTools: input.availableTools ?? [...missionStepTypeSchema.options], maximumIterations: input.maximumIterations ?? 20 };
+  let initialValidationError: string | undefined;
   try {
     const generated = await ai.generateStructured({
       operation: "mission-plan",
       systemInstruction: missionPlannerPrompt,
-      input: {
-        name: input.name,
-        objective: input.objective,
-        missionType: input.missionType ?? "OUTREACH_PREPARATION",
-        targetDescription: input.targetDescription ?? "Select and compare matching industrial B2B accounts from the current workspace.",
-        sellerKnowledge: input.sellerKnowledge,
-        availableAccounts: input.availableAccounts ?? [],
-        availableTools: input.availableTools ?? [...missionStepTypeSchema.options],
-        maximumIterations: input.maximumIterations ?? 20,
-        targetCriteria: input.targetCriteria,
-      },
+      input: plannerInput,
       outputSchema: missionPlanSchema,
-      promptVersion: "mission-plan-v3",
+      promptVersion: "mission-plan-v4",
       temperature: 0.1,
       maxTokens: 2_400,
     });
-    return { ...generated, data: assertExecutableMissionPlan(generated.data) };
+    try {
+      return { ...generated, data: assertPlanMatchesPlannerInput(generated.data, input), plannerMode: "AI" };
+    } catch (cause) {
+      initialValidationError = cause instanceof Error ? cause.message : "Generated plan failed executable validation.";
+      const repaired = await ai.generateStructured({
+        operation: "mission-plan",
+        systemInstruction: buildOperationInstruction("mission-plan", `Repair the supplied plan so it passes every executable Mission rule. Preserve the objective and mission type. Do not explain the repair. ${missionPlannerPrompt}`),
+        input: { ...plannerInput, previousPlan: generated.data, validationError: initialValidationError },
+        outputSchema: missionPlanSchema,
+        promptVersion: "mission-plan-repair-v1",
+        temperature: 0,
+        maxTokens: 2_400,
+      });
+      return {
+        ...repaired,
+        data: assertPlanMatchesPlannerInput(repaired.data, input),
+        plannerMode: "AI",
+        inputTokens: generated.inputTokens + repaired.inputTokens,
+        outputTokens: generated.outputTokens + repaired.outputTokens,
+        latencyMs: generated.latencyMs + repaired.latencyMs,
+        estimatedCost: generated.estimatedCost + repaired.estimatedCost,
+      };
+    }
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : "Unknown planner error";
+    const finalError = cause instanceof Error ? cause.message : "Unknown planner error";
+    const fallbackReason = initialValidationError ? `Initial plan: ${initialValidationError}; repair: ${finalError}` : finalError;
     return {
-      data: assertExecutableMissionPlan(createDeterministicMissionPlan(input, message)),
+      data: createDeterministicMissionPlan({ ...input, missionType }, fallbackReason),
       provider: "deterministic-fallback",
-      model: "golden-path-v1",
-      inputTokens: 0,
-      outputTokens: 0,
-      latencyMs: Date.now() - startedAt,
-      estimatedCost: 0,
-      requestId: "mission-plan-fallback",
+      model: isOutreach(missionType) ? "outreach-template-v1" : "discovery-template-v1",
+      plannerMode: "DETERMINISTIC_FALLBACK",
+      fallbackReason,
+      inputTokens: 0, outputTokens: 0, latencyMs: Date.now() - startedAt, estimatedCost: 0, requestId: "mission-plan-fallback",
     };
   }
 }

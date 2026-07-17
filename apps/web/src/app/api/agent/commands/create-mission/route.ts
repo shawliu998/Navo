@@ -42,12 +42,16 @@ export async function POST(request: Request) {
       targetCount: accountGuard?.ok ? 1 : 0,
       maximumAccounts: 3,
       maximumIterations: 20,
+      autoContinue: true,
+      maximumContinuations: 2,
       estimatedCostLimit: proposal.estimatedCost,
       testMode: true,
       stopConditions: generated.plan.stopConditions,
       plan: generated.plan,
       provider: generated.provider,
       model: generated.model,
+      plannerMode: generated.plannerMode,
+      plannerFallbackReason: generated.fallbackReason ?? undefined,
     });
     let responseMission = mission;
     if (parsed.data.status === "ACTIVE") {

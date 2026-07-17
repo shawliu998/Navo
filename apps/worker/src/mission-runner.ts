@@ -6,21 +6,23 @@ import {
 } from "@navo/db";
 import {
   accountRankingOutputSchema, buildOperationInstruction, companyResearchOutputSchema, contactDiscoveryOutputSchema, DeepSeekAIProvider,
-  emptyMissionWorkingMemory, getAIProvider, missionPlanSchema, missionResultSchema, missionReplanOutputSchema,
+  emptyMissionWorkingMemory, getAIProvider, missionPlanSchema, missionResultSchema,
   missionWorkingMemorySchema, MockAIProvider, outreachDraftSchema, prohibitedOutreachClaims,
   qualificationOutputSchema, salesSignalOutputSchema, validateOutreachDraft,
   type AIProvider, type CompanyResearchOutput, type ContactDiscoveryOutput, type MissionPlan, type MissionResult, type MissionStepType,
   type MissionWorkingMemory, type OutreachDraft, type SalesSignalOutput,
 } from "@navo/agents";
 import { qualifyAccount } from "@navo/domain";
-import { checkMissionStopConditions, decideNextMissionStep } from "@navo/workflows/mission-executor";
+import { checkMissionStopConditions, decideNextMissionStep, decideQualificationCheckpoint, decideRankingCheckpoint, decideWebsiteCheckpoint } from "@navo/workflows/mission-executor";
 import { AgentToolRegistry, toolRecordSchema } from "@navo/workflows/tools";
 import { fetchWebsiteResearch, type WebsiteResearchData, type WebsiteResearchInput, type WebsiteResearchOutput } from "@navo/workflows/website-research";
 import { isLocalDemoWebsite, loadLocalWebsiteResearchFixture } from "@navo/workflows/website-research/fixture";
+import { markStep, persistRuntime, resetPlanSteps, skipPendingSteps } from "./mission-persistence";
+import { scheduleMissionContinuation } from "./mission-continuation";
 
 const fallbackUserId = "00000000-0000-4000-8000-000000000002";
 type MissionRunInput = { workspaceId: string; missionId: string };
-type RunnerDependencies = { ai?: AIProvider; websiteResearch?: (input: WebsiteResearchInput) => Promise<WebsiteResearchOutput>; now?: () => Date };
+type RunnerDependencies = { ai?: AIProvider; websiteResearch?: (input: WebsiteResearchInput) => Promise<WebsiteResearchOutput>; now?: () => Date; enqueueMission?: (input: MissionRunInput) => Promise<unknown> };
 type AccountRow = typeof accounts.$inferSelect;
 type ContactRow = typeof contacts.$inferSelect;
 type SellerKnowledge = {
@@ -43,7 +45,7 @@ type Runtime = {
   mission: typeof agentMissions.$inferSelect; userId: string; ai: AIProvider; now: () => Date;
   fetchResearch: (input: WebsiteResearchInput) => Promise<WebsiteResearchOutput>; plan: MissionPlan;
   memory: MissionWorkingMemory; result: PersistedResult; sellerKnowledge?: SellerKnowledge; icp?: typeof icpProfiles.$inferSelect;
-  artifacts: Map<string, AccountArtifact>; consecutiveFailures: number;
+  artifacts: Map<string, AccountArtifact>;
 };
 
 const messageFrom = (cause: unknown) => cause instanceof Error ? cause.message : "Unknown mission execution error";
@@ -160,66 +162,76 @@ function selectionScore(account: AccountRow, criteria: MissionPlan["targetCriter
     + Math.min(account.fitScore ?? 0, 100) * 0.25;
 }
 
-async function persistRuntime(input: MissionRunInput, runtime: Runtime, currentStep: string, provider?: string, model?: string) {
-  const completed = runtime.plan.steps.filter((step) => ["COMPLETED", "SKIPPED"].includes(step.status)).length;
-  const progress = Math.round(completed / runtime.plan.steps.length * 100);
-  await db.update(agentMissions).set({
-    plan: runtime.plan, workingMemory: runtime.memory, result: runtime.result, iteration: runtime.mission.iteration, replanCount: runtime.mission.replanCount,
-    progress, currentStep, agentSummary: runtime.memory.lastObservation ?? currentStep, provider: provider ?? runtime.mission.provider,
-    model: model ?? runtime.mission.model, updatedAt: runtime.now(),
-  }).where(and(eq(agentMissions.workspaceId, input.workspaceId), eq(agentMissions.id, input.missionId), eq(agentMissions.status, "RUNNING")));
+function missionCriteria(runtime: Runtime): MissionPlan["targetCriteria"] {
+  const configured = runtime.mission.targetCriteria as { countries?: unknown; industries?: unknown };
+  return {
+    ...runtime.plan.targetCriteria,
+    countries: unique([...runtime.plan.targetCriteria.countries, ...(Array.isArray(configured.countries) ? configured.countries.filter((value): value is string => typeof value === "string") : [])]),
+    industries: unique([...runtime.plan.targetCriteria.industries, ...(Array.isArray(configured.industries) ? configured.industries.filter((value): value is string => typeof value === "string") : [])]),
+  };
+}
+
+function maximumMissionAccounts(runtime: Runtime) {
+  return Math.min(runtime.mission.maximumAccounts ?? 3, 5);
+}
+
+async function remainingCandidateAccounts(input: MissionRunInput, runtime: Runtime) {
+  if (!runtime.sellerKnowledge) return [];
+  if (runtime.plan.steps.some((step) => step.type === "CREATE_TARGET_ACCOUNT")) return [];
+  const remainingCapacity = Math.max(0, maximumMissionAccounts(runtime) - runtime.memory.selectedAccountIds.length);
+  if (!remainingCapacity) return [];
+  const selected = new Set(runtime.memory.selectedAccountIds);
+  const criteria = missionCriteria(runtime);
+  const candidates = await db.select().from(accounts).where(eq(accounts.workspaceId, input.workspaceId)).orderBy(desc(accounts.fitScore), desc(accounts.updatedAt));
+  return candidates
+    .filter((account) => account.website && !account.suppressed && !selected.has(account.id))
+    .map((account) => ({ account, score: selectionScore(account, criteria, runtime.sellerKnowledge!) }))
+    .filter((item) => item.score > 20)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, remainingCapacity)
+    .map((item) => item.account);
+}
+
+async function addMissionCandidates(input: MissionRunInput, runtime: Runtime, requestedIds: string[], reason: string) {
+  const allowed = await remainingCandidateAccounts(input, runtime);
+  const allowedById = new Map(allowed.map((account) => [account.id, account]));
+  const accountsToAdd = unique(requestedIds).map((id) => allowedById.get(id)).filter((account): account is AccountRow => Boolean(account));
+  if (!accountsToAdd.length) return [];
+  await db.insert(agentMissionTargets).values(accountsToAdd.map((account) => ({ workspaceId: input.workspaceId, createdBy: runtime.userId, missionId: input.missionId, accountId: account.id, status: "SELECTED", priority: "MEDIUM", whySelected: reason, currentStep: "Added by bounded checkpoint decision" }))).onConflictDoNothing();
+  for (const account of accountsToAdd) runtime.artifacts.set(account.id, { account, evidenceIds: [], signals: [], signalIds: [], contacts: [] });
+  runtime.memory.selectedAccountIds = unique([...runtime.memory.selectedAccountIds, ...accountsToAdd.map((account) => account.id)]);
+  runtime.mission.targetCount = runtime.memory.selectedAccountIds.length;
+  await db.update(agentMissions).set({ targetCount: runtime.mission.targetCount, updatedAt: runtime.now() }).where(and(eq(agentMissions.workspaceId, input.workspaceId), eq(agentMissions.id, input.missionId), eq(agentMissions.status, "RUNNING")));
+  await event(input, runtime, { type: "MISSION_CANDIDATES_ADDED", title: `Added ${accountsToAdd.length} bounded candidate account(s).`, description: reason, severity: "INFO", metadata: { accountIds: accountsToAdd.map((account) => account.id), selectedCount: runtime.memory.selectedAccountIds.length, maximumAccounts: maximumMissionAccounts(runtime) } });
+  return accountsToAdd;
 }
 
 async function recoverInterruptedPlan(input: MissionRunInput, runtime: Runtime) {
   const persistedSteps = await db.select().from(agentPlanSteps).where(and(eq(agentPlanSteps.workspaceId, input.workspaceId), eq(agentPlanSteps.missionId, input.missionId)));
-  let changed = false;
   for (const step of runtime.plan.steps) {
     const persisted = persistedSteps.find((candidate) => (candidate.input as { planStepId?: unknown }).planStepId === step.id)
       ?? persistedSteps.find((candidate) => candidate.relatedPlayNodeId === step.type);
-    if (persisted?.status === "COMPLETED" && step.status !== "COMPLETED") {
-      const output = persisted.output as Record<string, unknown>;
-      if (step.type === "RANK_ACCOUNTS") {
-        const ranking = accountRankingOutputSchema.safeParse(output);
+    if (!persisted) throw new Error(`MISSION_PLAN_STEP_NOT_REGISTERED: ${step.id}`);
+    if (persisted.status === "RUNNING") {
+      step.status = "PENDING";
+      step.error = undefined;
+      step.output = {};
+      await db.update(agentPlanSteps).set({ status: "PENDING", output: {}, errorCode: null, errorMessage: null, startedAt: null, completedAt: null, updatedAt: runtime.now() }).where(eq(agentPlanSteps.id, persisted.id));
+      continue;
+    }
+    if (["PENDING", "COMPLETED", "FAILED", "SKIPPED"].includes(persisted.status)) {
+      step.status = persisted.status as MissionPlan["steps"][number]["status"];
+      step.output = persisted.output as Record<string, unknown>;
+      step.error = persisted.errorMessage ?? undefined;
+      if (step.type === "RANK_ACCOUNTS" && persisted.status === "COMPLETED") {
+        const ranking = accountRankingOutputSchema.safeParse(persisted.output);
         if (ranking.success) {
           runtime.result.ranking = ranking.data;
           runtime.memory.rankedAccountIds = ranking.data.rankedAccounts.map((item) => item.accountId);
           runtime.memory.bestAccountId = ranking.data.bestAccountId;
         }
       }
-      const recoverable = step.type === "LOAD_SELLER_KNOWLEDGE" ? Boolean(runtime.sellerKnowledge)
-        : step.type === "SELECT_TARGET_ACCOUNTS" || step.type === "CREATE_TARGET_ACCOUNT" ? runtime.artifacts.size > 0
-        : step.type === "FETCH_WEBSITE" ? [...runtime.artifacts.values()].some((artifact) => artifact.website)
-        : step.type === "RESEARCH_COMPANY" ? [...runtime.artifacts.values()].some((artifact) => artifact.research)
-        : step.type === "EXTRACT_SIGNALS" ? [...runtime.artifacts.values()].some((artifact) => artifact.signals.length)
-        : step.type === "QUALIFY_ACCOUNT" ? [...runtime.artifacts.values()].some((artifact) => artifact.qualification)
-        : step.type === "RANK_ACCOUNTS" ? Boolean(runtime.memory.bestAccountId)
-        : step.type === "DISCOVER_CONTACTS" ? Boolean(runtime.result.contactDiscovery)
-        : step.type === "GENERATE_OUTREACH" ? Boolean(runtime.result.messageId)
-        : step.type === "CREATE_TASK" ? runtime.result.taskIds.length > 0
-        : step.type === "UPDATE_MEMORY" ? runtime.result.memoryFactIds.length > 0
-        : step.type === "SUMMARIZE_MISSION" ? Boolean(runtime.result.summary)
-        : false;
-      if (recoverable) {
-        step.status = "COMPLETED";
-        step.output = output;
-        step.error = undefined;
-        changed = true;
-        continue;
-      }
-      await db.update(agentPlanSteps).set({ status: "PENDING", errorCode: null, errorMessage: null, completedAt: null, updatedAt: runtime.now() }).where(eq(agentPlanSteps.id, persisted.id));
     }
-    if (step.status === "RUNNING") {
-      step.status = "PENDING";
-      step.error = undefined;
-      changed = true;
-      if (persisted) {
-        await db.update(agentPlanSteps).set({ status: "PENDING", errorCode: null, errorMessage: null, completedAt: null, updatedAt: runtime.now() }).where(eq(agentPlanSteps.id, persisted.id));
-      }
-    }
-  }
-  if (changed) {
-    await db.update(agentMissions).set({ plan: runtime.plan, currentStep: "Recovering interrupted mission", updatedAt: runtime.now() })
-      .where(and(eq(agentMissions.workspaceId, input.workspaceId), eq(agentMissions.id, input.missionId), eq(agentMissions.status, "RUNNING")));
   }
 }
 
@@ -292,13 +304,6 @@ async function hydrateRuntime(input: MissionRunInput, runtime: Runtime) {
   runtime.result.taskIds = unique([...runtime.result.taskIds, ...taskRows.map((row) => row.id)]);
   runtime.result.memoryFactIds = unique([...runtime.result.memoryFactIds, ...factRows.map((row) => row.id)]);
   if (draft) runtime.result.messageId = draft.id;
-  runtime.memory.evidenceIds = unique([...runtime.memory.evidenceIds, ...evidenceRows.map((row) => row.id)]);
-  runtime.memory.signalIds = unique([...runtime.memory.signalIds, ...signalRows.map((row) => row.id)]);
-  runtime.memory.qualificationResultIds = unique([...runtime.memory.qualificationResultIds, ...qualificationRows.map((row) => row.id)]);
-  runtime.memory.contactIds = unique([...runtime.memory.contactIds, ...contactRows.map((row) => row.id)]);
-  runtime.memory.draftMessageIds = unique([...runtime.memory.draftMessageIds, ...(draft ? [draft.id] : [])]);
-  runtime.memory.taskIds = unique([...runtime.memory.taskIds, ...taskRows.map((row) => row.id)]);
-  runtime.memory.memoryFactIds = unique([...runtime.memory.memoryFactIds, ...factRows.map((row) => row.id)]);
   runtime.memory.researchedAccountIds = unique([...runtime.memory.researchedAccountIds, ...[...runtime.artifacts.values()].filter((artifact) => artifact.research).map((artifact) => artifact.account.id)]);
   runtime.memory.qualifiedAccountIds = unique([...runtime.memory.qualifiedAccountIds, ...qualificationRows.map((row) => row.accountId)]);
   if (!runtime.memory.bestContactId) runtime.memory.bestContactId = contactRows.find((row) => row.id === persistedBestContactId)?.id ?? contactRows[0]?.id ?? null;
@@ -306,15 +311,14 @@ async function hydrateRuntime(input: MissionRunInput, runtime: Runtime) {
   if (!runtime.memory.bestAccountId && runtime.mission.targetAccountId && runtime.artifacts.get(runtime.mission.targetAccountId)?.qualification) runtime.memory.bestAccountId = runtime.mission.targetAccountId;
 }
 
-async function markStep(input: MissionRunInput, runtime: Runtime, stepId: string, status: "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED", output: Record<string, unknown> = {}, error?: string) {
-  const step = runtime.plan.steps.find((item) => item.id === stepId);
-  if (!step) throw new Error(`MISSION_PLAN_STEP_MISSING: ${stepId}`);
-  step.status = status;
-  step.output = output;
-  step.error = error;
-  const changedAt = runtime.now();
-  await db.update(agentPlanSteps).set({ status, output, errorCode: error?.split(":", 1)[0]?.slice(0, 120), errorMessage: error, startedAt: status === "RUNNING" ? changedAt : undefined, completedAt: status === "RUNNING" ? null : changedAt, updatedAt: changedAt })
-    .where(and(eq(agentPlanSteps.workspaceId, input.workspaceId), eq(agentPlanSteps.missionId, input.missionId), eq(agentPlanSteps.relatedPlayNodeId, step.type)));
+async function withLocalRetry<T>(operation: string, run: () => Promise<T>): Promise<T> {
+  try { return await run(); }
+  catch (firstCause) {
+    try { return await run(); }
+    catch (secondCause) {
+      throw new Error(`${operation}_RETRY_EXHAUSTED: ${messageFrom(secondCause)}; first attempt: ${messageFrom(firstCause)}`);
+    }
+  }
 }
 
 async function event(input: MissionRunInput, runtime: Runtime, values: { type: string; title: string; description?: string; severity?: string; accountId?: string; metadata?: Record<string, unknown> }) {
@@ -346,20 +350,20 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
       db.select().from(accounts).where(eq(accounts.workspaceId, input.workspaceId)).orderBy(desc(accounts.fitScore), desc(accounts.updatedAt)),
       db.select({ accountId: agentMissionTargets.accountId }).from(agentMissionTargets).where(and(eq(agentMissionTargets.workspaceId, input.workspaceId), eq(agentMissionTargets.missionId, input.missionId))),
     ]);
-    const maximum = Math.min(runtime.mission.maximumAccounts ?? 3, 5);
-    const missionCriteria = runtime.mission.targetCriteria as { countries?: unknown; industries?: unknown };
-    const criteria = { ...runtime.plan.targetCriteria, countries: unique([...runtime.plan.targetCriteria.countries, ...(Array.isArray(missionCriteria.countries) ? missionCriteria.countries.filter((value): value is string => typeof value === "string") : [])]), industries: unique([...runtime.plan.targetCriteria.industries, ...(Array.isArray(missionCriteria.industries) ? missionCriteria.industries.filter((value): value is string => typeof value === "string") : [])]) };
+    const maximum = maximumMissionAccounts(runtime);
+    const criteria = missionCriteria(runtime);
     const pinnedIds = unique([runtime.mission.targetAccountId, ...initialTargets.map((target) => target.accountId)].filter((value): value is string => Boolean(value)));
     const pinned = pinnedIds.map((id) => candidates.find((account) => account.id === id)).filter((account): account is AccountRow => Boolean(account?.website && !account.suppressed));
     const ranked = candidates.filter((account) => account.website && !account.suppressed).map((account) => ({ account, score: selectionScore(account, criteria, runtime.sellerKnowledge!) })).sort((a, b) => b.score - a.score);
-    const selected = unique([...pinned, ...ranked.filter((item) => item.score > 20).map((item) => item.account)].map((account) => account.id)).slice(0, maximum).map((id) => candidates.find((account) => account.id === id)!);
+    const initialBatchSize = Math.min(maximum, Math.max(pinned.length, maximum === 1 ? 1 : 2));
+    const selected = unique([...pinned, ...ranked.filter((item) => item.score > 20).map((item) => item.account)].map((account) => account.id)).slice(0, initialBatchSize).map((id) => candidates.find((account) => account.id === id)!);
     if (!selected.length) throw new Error("NO_TARGET_ACCOUNTS: No workspace account matched the mission and website requirements.");
     await db.insert(agentMissionTargets).values(selected.map((account, index) => ({ workspaceId: input.workspaceId, createdBy: runtime.userId, missionId: input.missionId, accountId: account.id, status: "SELECTED", priority: index === 0 ? "HIGH" : "MEDIUM", whySelected: `Matched mission criteria with selection score ${Math.round(selectionScore(account, criteria, runtime.sellerKnowledge!))}.`, currentStep: "Selected for autonomous research" }))).onConflictDoNothing();
     selected.forEach((account) => runtime.artifacts.set(account.id, { account, evidenceIds: [], signals: [], signalIds: [], contacts: [] }));
     runtime.memory.selectedAccountIds = selected.map((account) => account.id);
     runtime.mission.targetCount = selected.length;
     await db.update(agentMissions).set({ targetCount: selected.length, updatedAt: runtime.now() }).where(and(eq(agentMissions.workspaceId, input.workspaceId), eq(agentMissions.id, input.missionId), eq(agentMissions.status, "RUNNING")));
-    runtime.memory.lastObservation = `Navo selected ${selected.length} accounts for comparative research.`;
+    runtime.memory.lastObservation = `Navo selected an initial batch of ${selected.length} account(s), reserving up to ${Math.max(0, maximum - selected.length)} bounded replacement slot(s).`;
     return { selectedAccounts: selected.map((account) => ({ id: account.id, name: account.name, website: account.website, country: account.country, industry: account.industry, selectionReason: `Mission criteria score ${Math.round(selectionScore(account, criteria, runtime.sellerKnowledge!))}` })) };
   });
 
@@ -382,26 +386,44 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
   register("FETCH_WEBSITE", "Website Fetch", "Fetch bounded pages for selected accounts.", async () => {
     const fetched: Array<{ accountId: string; pageCount: number }> = [];
     const failures: Array<{ accountId: string; error: string }> = [];
-    for (const accountId of runtime.memory.selectedAccountIds) {
+    const fetchAccounts = async (accountIds: string[]) => {
+      for (const accountId of accountIds) {
       const artifact = runtime.artifacts.get(accountId);
       if (!artifact?.account.website) { failures.push({ accountId, error: "Website missing" }); continue; }
-      const website = await runtime.fetchResearch({ accountId, websiteUrl: artifact.account.website });
+      if (artifact.website) {
+        fetched.push({ accountId, pageCount: artifact.website.pages.length });
+        continue;
+      }
+      const website = await withLocalRetry("WEBSITE_FETCH", () => runtime.fetchResearch({ accountId, websiteUrl: artifact.account.website! }));
       if (!website.ok) { failures.push({ accountId, error: `${website.error.code}: ${website.error.message}` }); continue; }
       artifact.website = website.data;
       runtime.result.websiteByAccount[accountId] = website.data;
       fetched.push({ accountId, pageCount: website.data.pages.length });
       await event(input, runtime, { type: "WEBSITE_FETCHED", title: `Fetched ${artifact.account.name}.`, accountId, severity: "SUCCESS", metadata: { pageCount: website.data.pages.length, fixture: isLocalDemoWebsite(artifact.account.website) } });
+      }
+    };
+    await fetchAccounts(runtime.memory.selectedAccountIds);
+    let checkpoint;
+    while (true) {
+      const remaining = await remainingCandidateAccounts(input, runtime);
+      checkpoint = await decideWebsiteCheckpoint(runtime.ai, { accessibleAccountIds: unique(fetched.map((item) => item.accountId)), failedAccounts: failures, remainingAccountIds: remaining.map((account) => account.id), maximumAccounts: maximumMissionAccounts(runtime) });
+      runtime.memory.notes.push(checkpoint.decisionSummary);
+      await event(input, runtime, { type: "WEBSITE_CHECKPOINT_DECIDED", title: `Website checkpoint: ${checkpoint.action.replaceAll("_", " ").toLowerCase()}.`, description: checkpoint.reason, severity: failures.length ? "WARNING" : "INFO", metadata: { ...checkpoint, failedAccounts: failures.map((failure) => failure.accountId), remainingAccountIds: remaining.map((account) => account.id) } });
+      if (checkpoint.action !== "SELECT_MORE_ACCOUNTS") break;
+      const added = await addMissionCandidates(input, runtime, checkpoint.additionalAccountIds, checkpoint.reason);
+      if (!added.length) break;
+      await fetchAccounts(added.map((account) => account.id));
     }
-    if (!fetched.length) throw new Error(`WEBSITE_RESEARCH_FAILED: ${failures.map((failure) => failure.error).join("; ")}`);
-    if (failures.length && runtime.mission.replanCount < 1) {
-      const remainingSteps = runtime.plan.steps.filter((step) => step.status === "PENDING");
-      const replanned = await runtime.ai.generateStructured({ operation: "mission-replan", systemInstruction: buildOperationInstruction("mission-replan", "Keep the remaining registered steps and continue with accessible accounts."), input: { reason: "Some account websites were inaccessible.", remainingSteps, failedAccounts: failures, workingMemory: runtime.memory }, outputSchema: missionReplanOutputSchema, promptVersion: "mission-replan-v1", temperature: 0, maxTokens: 1_200 });
-      runtime.mission.replanCount += 1;
-      runtime.memory.notes.push(...replanned.data.notes, `Replanned after ${failures.length} website failure(s).`);
-      await event(input, runtime, { type: "MISSION_REPLANNED", title: "Navo continued with accessible accounts.", description: replanned.data.reason, severity: "WARNING", metadata: { failedAccounts: failures.map((failure) => failure.accountId) } });
+    if (checkpoint.action === "FAIL") throw new Error(`WEBSITE_CHECKPOINT_FAILED: ${checkpoint.reason}`);
+    if (checkpoint.action === "COMPLETE_NO_ACCESSIBLE_ACCOUNTS") {
+      runtime.result.outcome = "NO_SUITABLE_MATCH";
+      runtime.result.decisionSummary = checkpoint.decisionSummary;
+      await skipPendingSteps(input, runtime, ["RESEARCH_COMPANY", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "RANK_ACCOUNTS", "DISCOVER_CONTACTS", "GENERATE_OUTREACH", "CREATE_TASK"], checkpoint.reason);
+    } else if (!fetched.length) {
+      throw new Error(`WEBSITE_RESEARCH_FAILED: ${failures.map((failure) => failure.error).join("; ")}`);
     }
     runtime.memory.lastObservation = `Fetched ${fetched.length} account websites${failures.length ? `; ${failures.length} inaccessible account(s) were skipped` : ""}.`;
-    return { fetched, failures };
+    return { fetched: unique(fetched.map((item) => item.accountId)).map((accountId) => fetched.find((item) => item.accountId === accountId)!), failures, checkpoint };
   });
 
   register("RESEARCH_COMPANY", "Research Company", "Create structured research and persist evidence.", async () => {
@@ -409,8 +431,9 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
     const researched: Array<{ accountId: string; evidenceCount: number; summary: string }> = [];
     for (const artifact of runtime.artifacts.values()) {
       if (!artifact.website) continue;
+      if (artifact.research) continue;
       const researchInput = { accountId: artifact.account.id, companyName: artifact.account.name, website: artifact.account.website, sellerKnowledge: runtime.sellerKnowledge, pageContents: artifact.website.pages.map(({ url, title, text }) => ({ url, title, text })), evidenceUrls: artifact.website.pages.map((page) => page.url) };
-      let generated = await runtime.ai.generateStructured({ operation: "company-research", systemInstruction: buildOperationInstruction("company-research", "Use only fetched pages. Every quote must be copied character-for-character as one contiguous substring from the matching page text, including punctuation and spacing. sourceUrl must equal a supplied page URL. Keep arrays concise and return no more than five evidence items."), input: researchInput, outputSchema: companyResearchOutputSchema, promptVersion: "company-research-v5", temperature: 0.1, maxTokens: 3_200 });
+      let generated = await withLocalRetry("COMPANY_RESEARCH", () => runtime.ai.generateStructured({ operation: "company-research", systemInstruction: buildOperationInstruction("company-research", "Use only fetched pages. Every quote must be copied character-for-character as one contiguous substring from the matching page text, including punctuation and spacing. sourceUrl must equal a supplied page URL. Keep arrays concise and return no more than five evidence items."), input: researchInput, outputSchema: companyResearchOutputSchema, promptVersion: "company-research-v5", temperature: 0.1, maxTokens: 3_200 }));
       try {
         validateResearchEvidence(generated.data, artifact.website);
       } catch (cause) {
@@ -424,18 +447,16 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
       if (removedIds.length) {
         await db.delete(evidence).where(and(eq(evidence.workspaceId, input.workspaceId), eq(evidence.accountId, artifact.account.id), sql`${evidence.metadata}->>'missionId' = ${input.missionId}`));
         runtime.result.evidenceIds = runtime.result.evidenceIds.filter((id) => !removedIds.includes(id));
-        runtime.memory.evidenceIds = runtime.memory.evidenceIds.filter((id) => !removedIds.includes(id));
       }
       const saved = await db.insert(evidence).values(generated.data.evidence.map((item) => ({ workspaceId: input.workspaceId, createdBy: runtime.userId, accountId: artifact.account.id, type: "WEBSITE", title: item.claim, summary: item.claim, quote: item.quote, sourceUrl: item.sourceUrl, pageTitle: item.sourceTitle, observedAt: runtime.now(), fetchedAt: new Date(artifact.website!.fetchedAt), confidence: item.confidence.toFixed(3), metadata: { missionId: input.missionId, provider: generated.provider, model: generated.model } }))).returning({ id: evidence.id });
       artifact.evidenceIds = saved.map((row) => row.id);
       runtime.result.evidenceIds.push(...artifact.evidenceIds);
       runtime.result.researchByAccount[artifact.account.id] = artifact.research;
-      runtime.memory.researchedAccountIds.push(artifact.account.id);
-      runtime.memory.evidenceIds.push(...artifact.evidenceIds);
+      runtime.memory.researchedAccountIds = unique([...runtime.memory.researchedAccountIds, artifact.account.id]);
       await db.update(accounts).set({ summary: generated.data.summary, lastResearchedAt: runtime.now(), updatedAt: runtime.now() }).where(and(eq(accounts.workspaceId, input.workspaceId), eq(accounts.id, artifact.account.id)));
       researched.push({ accountId: artifact.account.id, evidenceCount: saved.length, summary: generated.data.summary });
     }
-    if (!researched.length) throw new Error("COMPANY_RESEARCH_EMPTY: No accessible account could be researched.");
+    if (!researched.length && ![...runtime.artifacts.values()].some((artifact) => artifact.research)) throw new Error("COMPANY_RESEARCH_EMPTY: No accessible account could be researched.");
     runtime.memory.lastObservation = `Researched ${researched.length} companies and persisted ${runtime.result.evidenceIds.length} evidence records.`;
     return { researched };
   });
@@ -445,19 +466,18 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
     const summaries: Array<{ accountId: string; signalCount: number }> = [];
     for (const artifact of runtime.artifacts.values()) {
       if (!artifact.research) continue;
+      if (artifact.signalIds.length) continue;
       const evidenceUrls = unique(artifact.research.evidence.map((item) => item.sourceUrl));
-      const generated = await runtime.ai.generateStructured({ operation: "signal-extraction", systemInstruction: buildOperationInstruction("signal-extraction", "Every signal must cite a supplied persisted evidence URL."), input: { accountId: artifact.account.id, companyResearch: artifact.research, sellerKnowledge: runtime.sellerKnowledge, evidenceUrls }, outputSchema: salesSignalOutputSchema, promptVersion: "signal-extraction-v3", temperature: 0.1, maxTokens: 1_300 });
+      const generated = await withLocalRetry("SIGNAL_EXTRACTION", () => runtime.ai.generateStructured({ operation: "signal-extraction", systemInstruction: buildOperationInstruction("signal-extraction", "Every signal must cite a supplied persisted evidence URL."), input: { accountId: artifact.account.id, companyResearch: artifact.research, sellerKnowledge: runtime.sellerKnowledge, evidenceUrls }, outputSchema: salesSignalOutputSchema, promptVersion: "signal-extraction-v3", temperature: 0.1, maxTokens: 1_300 }));
       validateSignalEvidence(generated.data, new Set(evidenceUrls));
       if (artifact.signalIds.length) {
         await db.delete(signals).where(and(eq(signals.workspaceId, input.workspaceId), eq(signals.missionId, input.missionId), eq(signals.accountId, artifact.account.id)));
         runtime.result.signalIds = runtime.result.signalIds.filter((id) => !artifact.signalIds.includes(id));
-        runtime.memory.signalIds = runtime.memory.signalIds.filter((id) => !artifact.signalIds.includes(id));
       }
       const saved = await db.insert(signals).values(generated.data.signals.map((item) => ({ workspaceId: input.workspaceId, createdBy: runtime.userId, accountId: artifact.account.id, missionId: input.missionId, type: item.type, summary: item.summary, rationale: item.rationale, evidenceUrls: item.evidenceUrls, confidence: item.confidence.toFixed(3), priority: item.priority, status: "NEW", detectedAt: runtime.now() }))).returning({ id: signals.id });
       artifact.signals = generated.data.signals;
       artifact.signalIds = saved.map((row) => row.id);
       runtime.result.signalIds.push(...artifact.signalIds);
-      runtime.memory.signalIds.push(...artifact.signalIds);
       summaries.push({ accountId: artifact.account.id, signalCount: saved.length });
     }
     runtime.memory.lastObservation = `Extracted ${runtime.result.signalIds.length} evidence-linked opportunity signals.`;
@@ -469,7 +489,8 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
     const qualified: QualificationArtifact[] = [];
     for (const artifact of runtime.artifacts.values()) {
       if (!artifact.research) continue;
-      const semantic = await runtime.ai.generateStructured({ operation: "qualification", systemInstruction: buildOperationInstruction("qualification", "Code applies the authoritative score. Return semantic fit using supplied evidence."), input: { account: { name: artifact.account.name, country: artifact.account.country, industry: artifact.account.industry }, research: artifact.research, signals: artifact.signals, evidenceIds: artifact.evidenceIds }, outputSchema: qualificationOutputSchema, promptVersion: "qualification-v3", temperature: 0.1, maxTokens: 900 });
+      if (artifact.qualification) continue;
+      const semantic = await withLocalRetry("QUALIFICATION", () => runtime.ai.generateStructured({ operation: "qualification", systemInstruction: buildOperationInstruction("qualification", "Code applies the authoritative score. Return semantic fit using supplied evidence."), input: { account: { name: artifact.account.name, country: artifact.account.country, industry: artifact.account.industry }, research: artifact.research, signals: artifact.signals, evidenceIds: artifact.evidenceIds }, outputSchema: qualificationOutputSchema, promptVersion: "qualification-v3", temperature: 0.1, maxTokens: 900 }));
       const industryMatch = runtime.sellerKnowledge.targetIndustries.some((value) => (artifact.account.industry ?? "").toLowerCase().includes(value.toLowerCase()) || value.toLowerCase().includes((artifact.account.industry ?? "").toLowerCase()));
       const regionMatch = runtime.sellerKnowledge.targetRegions.some((value) => value.toLowerCase() === (artifact.account.country ?? "").toLowerCase());
       const decision = qualifyAccount({ hardRules: industryMatch && regionMatch ? 100 : industryMatch || regionMatch ? 70 : 35, businessSignals: Math.min(100, 35 + artifact.signals.length * 20), productMatch: artifact.research.likelyNeeds.length || artifact.research.likelyBusinessNeeds.length ? 90 : 45, similarCaseMatch: artifact.evidenceIds.length >= 2 ? 80 : 50, semanticJudgment: semantic.data.score, hardExcluded: isHardExcluded(artifact.account, runtime.icp.hardExclusions as string[]), evidenceIds: artifact.evidenceIds });
@@ -478,27 +499,45 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
       if (artifact.qualification) {
         await db.delete(qualificationResults).where(and(eq(qualificationResults.workspaceId, input.workspaceId), eq(qualificationResults.missionId, input.missionId), eq(qualificationResults.accountId, artifact.account.id)));
         runtime.result.qualificationResultIds = runtime.result.qualificationResultIds.filter((id) => id !== artifact.qualification!.id);
-        runtime.memory.qualificationResultIds = runtime.memory.qualificationResultIds.filter((id) => id !== artifact.qualification!.id);
       }
       const [saved] = await db.insert(qualificationResults).values({ workspaceId: input.workspaceId, createdBy: runtime.userId, accountId: artifact.account.id, missionId: input.missionId, score: decision.score, status: decision.status, scoreBreakdown: decision.scoreBreakdown, reasons, risks: semantic.data.risks, evidenceIds: artifact.evidenceIds, inferenceIds: [], recommendedAction, confidence: semantic.data.confidence.toFixed(3) }).returning({ id: qualificationResults.id });
       if (!saved) throw new Error("QUALIFICATION_PERSIST_FAILED");
       artifact.qualification = { id: saved.id, accountId: artifact.account.id, score: decision.score, status: decision.status, reasons, risks: semantic.data.risks, confidence: semantic.data.confidence, recommendedAction };
       qualified.push(artifact.qualification);
       runtime.result.qualificationResultIds.push(saved.id);
-      runtime.memory.qualificationResultIds.push(saved.id);
-      runtime.memory.qualifiedAccountIds.push(artifact.account.id);
+      runtime.memory.qualifiedAccountIds = unique([...runtime.memory.qualifiedAccountIds, artifact.account.id]);
       await db.update(accounts).set({ fitScore: decision.score, qualification: decision.status, updatedAt: runtime.now() }).where(and(eq(accounts.workspaceId, input.workspaceId), eq(accounts.id, artifact.account.id)));
       await db.update(agentMissionTargets).set({ status: "QUALIFIED", keySignal: artifact.signals[0]?.summary, findingConfidence: semantic.data.confidence.toFixed(3), suggestedAction: recommendedAction, currentStep: "Qualification complete", updatedAt: runtime.now() }).where(and(eq(agentMissionTargets.workspaceId, input.workspaceId), eq(agentMissionTargets.missionId, input.missionId), eq(agentMissionTargets.accountId, artifact.account.id)));
     }
-    if (!qualified.length) throw new Error("QUALIFICATION_EMPTY: No researched account could be qualified.");
-    runtime.memory.lastObservation = `Qualified ${qualified.length} accounts; ${qualified.filter((item) => item.score >= 60).length} met the follow-up threshold.`;
-    return { qualifications: qualified };
+    const allQualified = [...runtime.artifacts.values()].flatMap((artifact) => artifact.qualification ? [artifact.qualification] : []);
+    if (!allQualified.length) throw new Error("QUALIFICATION_EMPTY: No researched account could be qualified.");
+    const viable = allQualified.filter((item) => item.score >= 60);
+    const remaining = await remainingCandidateAccounts(input, runtime);
+    const checkpoint = await decideQualificationCheckpoint(runtime.ai, { accounts: allQualified, viableAccountIds: viable.map((item) => item.accountId), remainingAccountIds: remaining.map((account) => account.id), maximumAccounts: maximumMissionAccounts(runtime) });
+    runtime.memory.notes.push(checkpoint.decisionSummary);
+    await event(input, runtime, { type: "QUALIFICATION_CHECKPOINT_DECIDED", title: `Qualification checkpoint: ${checkpoint.action.replaceAll("_", " ").toLowerCase()}.`, description: checkpoint.reason, severity: checkpoint.action === "COMPLETE_NO_MATCH" ? "WARNING" : "INFO", metadata: checkpoint });
+    if (checkpoint.action === "FAIL") throw new Error(`QUALIFICATION_CHECKPOINT_FAILED: ${checkpoint.reason}`);
+    let addedAccountIds: string[] = [];
+    if (checkpoint.action === "RESEARCH_MORE_ACCOUNTS") {
+      const added = await addMissionCandidates(input, runtime, checkpoint.additionalAccountIds, checkpoint.reason);
+      addedAccountIds = added.map((account) => account.id);
+      if (!addedAccountIds.length) throw new Error("QUALIFICATION_EXPANSION_EMPTY: The checkpoint requested additional research but no valid bounded account was added.");
+    }
+    if (checkpoint.action === "COMPLETE_NO_MATCH") {
+      runtime.result.outcome = "NO_SUITABLE_MATCH";
+      runtime.result.decisionSummary = checkpoint.decisionSummary;
+      await skipPendingSteps(input, runtime, ["RANK_ACCOUNTS", "DISCOVER_CONTACTS", "GENERATE_OUTREACH", "CREATE_TASK"], checkpoint.reason);
+    }
+    runtime.memory.lastObservation = checkpoint.action === "RESEARCH_MORE_ACCOUNTS"
+      ? `Qualified ${allQualified.length} account(s) and added ${addedAccountIds.length} more bounded candidate(s) for research.`
+      : `Qualified ${allQualified.length} accounts; ${viable.length} met the follow-up threshold.`;
+    return { qualifications: allQualified, checkpoint, addedAccountIds, repeatPipeline: checkpoint.action === "RESEARCH_MORE_ACCOUNTS" };
   });
 
   register("RANK_ACCOUNTS", "Rank Accounts", "Select the strongest account using persisted comparisons.", async () => {
     const candidates = [...runtime.artifacts.values()].filter((artifact) => artifact.qualification).map((artifact) => ({ accountId: artifact.account.id, qualificationScore: artifact.qualification!.score, qualificationStatus: artifact.qualification!.status, signals: artifact.signals, summary: artifact.research?.summary ?? "" }));
     if (!candidates.length) throw new Error("RANKING_EMPTY: No qualified account is available.");
-    const generated = await runtime.ai.generateStructured({ operation: "rank-accounts", systemInstruction: buildOperationInstruction("rank-accounts", "Select bestAccountId only from the supplied accounts."), input: { accounts: candidates }, outputSchema: accountRankingOutputSchema, promptVersion: "rank-accounts-v1", temperature: 0.1, maxTokens: 1_000 });
+    const generated = await withLocalRetry("RANK_ACCOUNTS", () => runtime.ai.generateStructured({ operation: "rank-accounts", systemInstruction: buildOperationInstruction("rank-accounts", "Select bestAccountId only from the supplied accounts."), input: { accounts: candidates }, outputSchema: accountRankingOutputSchema, promptVersion: "rank-accounts-v1", temperature: 0.1, maxTokens: 1_000 }));
     if (!candidates.some((candidate) => candidate.accountId === generated.data.bestAccountId)) throw new Error("RANKING_ACCOUNT_INVALID");
     runtime.result.ranking = generated.data;
     runtime.memory.rankedAccountIds = generated.data.rankedAccounts.map((item) => item.accountId);
@@ -507,7 +546,13 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
     runtime.memory.lastObservation = `Navo selected ${runtime.artifacts.get(generated.data.bestAccountId)?.account.name ?? "the top account"} as the strongest opportunity.`;
     await db.update(agentMissions).set({ targetAccountId: generated.data.bestAccountId, updatedAt: runtime.now() }).where(and(eq(agentMissions.workspaceId, input.workspaceId), eq(agentMissions.id, input.missionId)));
     await db.update(agentMissionTargets).set({ priority: "HIGH", suggestedAction: "Review the English outreach draft", currentStep: "Selected as best account", updatedAt: runtime.now() }).where(and(eq(agentMissionTargets.workspaceId, input.workspaceId), eq(agentMissionTargets.missionId, input.missionId), eq(agentMissionTargets.accountId, generated.data.bestAccountId)));
-    return generated.data;
+    const checkpoint = await decideRankingCheckpoint(runtime.ai, { missionType: runtime.plan.missionType, bestAccountId: generated.data.bestAccountId, rankedAccounts: generated.data.rankedAccounts, contactDiscoveryPlanned: runtime.plan.steps.some((step) => step.type === "DISCOVER_CONTACTS"), outreachPlanned: runtime.plan.steps.some((step) => step.type === "GENERATE_OUTREACH") });
+    runtime.memory.notes.push(checkpoint.decisionSummary);
+    runtime.result.decisionSummary = checkpoint.decisionSummary;
+    await event(input, runtime, { type: "RANKING_CHECKPOINT_DECIDED", title: `Ranking checkpoint: ${checkpoint.action.replaceAll("_", " ").toLowerCase()}.`, description: checkpoint.reason, metadata: checkpoint });
+    if (checkpoint.action === "FAIL") throw new Error(`RANKING_CHECKPOINT_FAILED: ${checkpoint.reason}`);
+    if (checkpoint.action === "GENERATE_ACCOUNT_LEVEL_DRAFT") await skipPendingSteps(input, runtime, ["DISCOVER_CONTACTS"], checkpoint.reason);
+    return { ...generated.data, checkpoint };
   });
 
   register("DISCOVER_CONTACTS", "Discover Contacts", "Find named, evidence-backed decision makers for the best account.", async () => {
@@ -528,7 +573,7 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
         pageContents: contactWebsite.pages.map(({ url, title, text }) => ({ url, title, text })),
         evidenceUrls: contactWebsite.pages.map((page) => page.url),
       };
-      let generated = await runtime.ai.generateStructured({ operation: "contact-discovery", systemInstruction: buildOperationInstruction("contact-discovery", "Find only people explicitly named with a job title or responsibility in the supplied pages. Copy a short literal sourceQuote containing the name and role. Return null email unless the exact address appears on the cited page."), input: discoveryInput, outputSchema: contactDiscoveryOutputSchema, promptVersion: "contact-discovery-v1", temperature: 0.1, maxTokens: 1_500 });
+      let generated = await withLocalRetry("CONTACT_DISCOVERY", () => runtime.ai.generateStructured({ operation: "contact-discovery", systemInstruction: buildOperationInstruction("contact-discovery", "Find only people explicitly named with a job title or responsibility in the supplied pages. Copy a short literal sourceQuote containing the name and role. Return null email unless the exact address appears on the cited page."), input: discoveryInput, outputSchema: contactDiscoveryOutputSchema, promptVersion: "contact-discovery-v1", temperature: 0.1, maxTokens: 1_500 }));
       try {
         validateContactEvidence(generated.data, contactWebsite, artifact.account.id);
       } catch (cause) {
@@ -566,7 +611,6 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
     artifact.contacts.sort((a, b) => contactScore(b) - contactScore(a));
     artifact.bestContact = artifact.contacts[0];
     runtime.result.contactIds = unique([...runtime.result.contactIds, ...artifact.contacts.map((contact) => contact.id)]);
-    runtime.memory.contactIds = unique([...runtime.memory.contactIds, ...artifact.contacts.map((contact) => contact.id)]);
     runtime.memory.bestContactId = artifact.bestContact?.id ?? null;
     runtime.result.bestContactId = artifact.bestContact?.id ?? null;
     runtime.memory.lastObservation = artifact.bestContact
@@ -581,7 +625,7 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
     if (!artifact?.research || !artifact.qualification) throw new Error("BEST_ACCOUNT_RESEARCH_REQUIRED");
     const contact = artifact.bestContact;
     const evidenceUrls = unique(artifact.research.evidence.map((item) => item.sourceUrl));
-    const generated = await runtime.ai.generateStructured({ operation: "message", systemInstruction: buildOperationInstruction("message", contact ? `Return an English DRAFT of 80 to 180 words addressed to ${contact.name}, ${contact.title ?? "the cited contact"}. Use the supplied contact evidence conservatively, include a supplied evidence URL, and never send email.` : "Return an English account-level DRAFT of 80 to 180 words, targeting 110 to 150 words. Include a supplied evidence URL. Never send email."), input: { sellerKnowledge: runtime.sellerKnowledge, account: artifact.account, contact: contact ? { id: contact.id, fullName: contact.name, jobTitle: contact.title, department: contact.persona, sourceUrl: contact.sourceUrl, sourceQuote: contact.sourceQuote } : null, companyResearch: artifact.research, signals: artifact.signals, qualification: artifact.qualification, evidenceUrls }, outputSchema: outreachDraftSchema, promptVersion: "outreach-draft-v5", temperature: 0.2, maxTokens: 1_200 });
+    const generated = await withLocalRetry("GENERATE_OUTREACH", () => runtime.ai.generateStructured({ operation: "message", systemInstruction: buildOperationInstruction("message", contact ? `Return an English DRAFT of 80 to 180 words addressed to ${contact.name}, ${contact.title ?? "the cited contact"}. Use the supplied contact evidence conservatively, include a supplied evidence URL, and never send email.` : "Return an English account-level DRAFT of 80 to 180 words, targeting 110 to 150 words. Include a supplied evidence URL. Never send email."), input: { sellerKnowledge: runtime.sellerKnowledge, account: artifact.account, contact: contact ? { id: contact.id, fullName: contact.name, jobTitle: contact.title, department: contact.persona, sourceUrl: contact.sourceUrl, sourceQuote: contact.sourceQuote } : null, companyResearch: artifact.research, signals: artifact.signals, qualification: artifact.qualification, evidenceUrls }, outputSchema: outreachDraftSchema, promptVersion: "outreach-draft-v5", temperature: 0.2, maxTokens: 1_200 }));
     const validation = validateOutreachDraft(generated.data, [...prohibitedOutreachClaims, ...runtime.sellerKnowledge.prohibitedClaims]);
     if (!validation.valid) throw new Error(`OUTREACH_VALIDATION_FAILED: ${validation.errors.join("; ")}`);
     if (contact) {
@@ -598,7 +642,6 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
     runtime.result.outreach = { ...generated.data, accountId: artifact.account.id, contactId: contact?.id, contactName: contact?.name };
     runtime.result.messageId = message.id;
     runtime.result.draftMessageIds.push(message.id);
-    runtime.memory.draftMessageIds.push(message.id);
     runtime.memory.lastObservation = `Prepared an English outreach DRAFT for ${contact ? `${contact.name} at ` : ""}${artifact.account.name}; no email was sent.`;
     await db.update(agentMissionTargets).set({ messageId: message.id, currentStep: "Outreach DRAFT saved", updatedAt: runtime.now() }).where(and(eq(agentMissionTargets.workspaceId, input.workspaceId), eq(agentMissionTargets.missionId, input.missionId), eq(agentMissionTargets.accountId, artifact.account.id)));
     return { messageId: message.id, status: "DRAFT", outreach: runtime.result.outreach };
@@ -614,14 +657,16 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
     const task = existing ?? created;
     if (!task) throw new Error("TASK_PERSIST_FAILED");
     runtime.result.taskIds.push(task.id);
-    runtime.memory.taskIds.push(task.id);
     runtime.memory.lastObservation = `Created the next-step review task for ${artifact.account.name}.`;
     await db.update(agentMissionTargets).set({ taskId: task.id, currentStep: "Next-step task created", updatedAt: runtime.now() }).where(and(eq(agentMissionTargets.workspaceId, input.workspaceId), eq(agentMissionTargets.missionId, input.missionId), eq(agentMissionTargets.accountId, artifact.account.id)));
     return { taskId: task.id, title: taskTitle, contactId: contact?.id ?? null, status: "OPEN" };
   });
 
   register("UPDATE_MEMORY", "Update Memory", "Persist sourced account facts from mission results.", async () => {
-    if (!runtime.memory.bestAccountId || !runtime.result.messageId) throw new Error("BEST_ACCOUNT_DRAFT_REQUIRED_FOR_MEMORY");
+    if (!runtime.memory.bestAccountId) {
+      runtime.memory.lastObservation = "No suitable account was found, so no account memory fact was written.";
+      return { accountId: null, factsCreated: 0, memoryFactIds: [] };
+    }
     const artifact = runtime.artifacts.get(runtime.memory.bestAccountId)!;
     const facts = [
       ["BUSINESS", artifact.research?.summary ?? `${artifact.account.name} is an industrial manufacturer.`],
@@ -631,9 +676,8 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
       ["NEXT_ACTION", artifact.bestContact ? `A DRAFT exists for ${artifact.bestContact.name}, ${artifact.bestContact.title ?? "public contact"}; review it before manual follow-up.` : `A DRAFT exists; find and verify a relevant contact before manual follow-up.`],
     ] as const;
     const existing = await db.select({ id: memoryFacts.id }).from(memoryFacts).where(and(eq(memoryFacts.workspaceId, input.workspaceId), eq(memoryFacts.missionId, input.missionId), eq(memoryFacts.accountId, artifact.account.id)));
-    const saved = existing.length ? existing : await db.insert(memoryFacts).values(facts.map(([category, fact]) => ({ workspaceId: input.workspaceId, createdBy: runtime.userId, accountId: artifact.account.id, missionId: input.missionId, category, fact, confidence: (artifact.qualification?.confidence ?? 0.75).toFixed(3), sourceMessageId: runtime.result.messageId!, status: "ACTIVE", validFrom: runtime.now() }))).returning({ id: memoryFacts.id });
+    const saved = existing.length ? existing : await db.insert(memoryFacts).values(facts.map(([category, fact]) => ({ workspaceId: input.workspaceId, createdBy: runtime.userId, accountId: artifact.account.id, missionId: input.missionId, category, fact, confidence: (artifact.qualification?.confidence ?? 0.75).toFixed(3), sourceType: "MISSION", sourceId: input.missionId, sourceMessageId: null, evidenceIds: artifact.evidenceIds, status: "ACTIVE", validFrom: runtime.now() }))).returning({ id: memoryFacts.id });
     runtime.result.memoryFactIds.push(...saved.map((row) => row.id));
-    runtime.memory.memoryFactIds.push(...saved.map((row) => row.id));
     runtime.memory.lastObservation = `Wrote ${saved.length} sourced memory facts for ${artifact.account.name}.`;
     return { accountId: artifact.account.id, factsCreated: saved.length, memoryFactIds: saved.map((row) => row.id) };
   });
@@ -641,7 +685,7 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
   register("SUMMARIZE_MISSION", "Summarize Mission", "Persist the final mission result.", async () => {
     const best = runtime.memory.bestAccountId ? runtime.artifacts.get(runtime.memory.bestAccountId) : undefined;
     const rankingReason = runtime.result.ranking?.rankedAccounts.find((item) => item.accountId === runtime.memory.bestAccountId)?.reason ?? null;
-    const generated = await runtime.ai.generateStructured({ operation: "mission-summary", systemInstruction: buildOperationInstruction("mission-summary", "Summarize persisted artifacts only. State clearly that outreach remains DRAFT."), input: { accountsInvestigated: runtime.memory.researchedAccountIds.length, bestAccountId: runtime.memory.bestAccountId, bestContactId: runtime.memory.bestContactId, bestContact: best?.bestContact ? { name: best.bestContact.name, title: best.bestContact.title } : null, bestAccountReason: rankingReason, keySignals: best?.signals.map((signal) => signal.summary) ?? [], qualificationSummary: best?.qualification ? `${best.qualification.status} at ${best.qualification.score}/100` : "No qualification", outreachDraftId: runtime.result.messageId ?? null, taskIds: runtime.result.taskIds, memoryFactIds: runtime.result.memoryFactIds }, outputSchema: missionResultSchema, promptVersion: "mission-summary-v2", temperature: 0.1, maxTokens: 1_000 });
+    const generated = await withLocalRetry("MISSION_SUMMARY", () => runtime.ai.generateStructured({ operation: "mission-summary", systemInstruction: buildOperationInstruction("mission-summary", "Summarize persisted artifacts only. State clearly that outreach remains DRAFT."), input: { outcome: runtime.result.outcome ?? (best ? "OPPORTUNITY_FOUND" : "NO_SUITABLE_MATCH"), decisionSummary: runtime.result.decisionSummary ?? runtime.memory.notes.at(-1), accountsInvestigated: runtime.memory.researchedAccountIds.length, bestAccountId: runtime.memory.bestAccountId, bestContactId: runtime.memory.bestContactId, bestContact: best?.bestContact ? { name: best.bestContact.name, title: best.bestContact.title } : null, bestAccountReason: rankingReason, keySignals: best?.signals.map((signal) => signal.summary) ?? [], qualificationSummary: best?.qualification ? `${best.qualification.status} at ${best.qualification.score}/100` : "No qualification", outreachDraftId: runtime.result.messageId ?? null, taskIds: runtime.result.taskIds, memoryFactIds: runtime.result.memoryFactIds, plannerMode: runtime.mission.plannerMode, fallbackReason: runtime.mission.plannerFallbackReason }, outputSchema: missionResultSchema, promptVersion: "mission-summary-v3", temperature: 0.1, maxTokens: 1_000 }));
     Object.assign(runtime.result, generated.data);
     runtime.result.research = best?.research;
     runtime.result.qualification = best?.qualification;
@@ -656,7 +700,7 @@ async function failMission(input: MissionRunInput, runtime: Runtime, cause: unkn
   const changedAt = runtime.now();
   const message = messageFrom(cause);
   await db.transaction(async (tx) => {
-    const failed = await tx.update(agentMissions).set({ status: "FAILED", plan: runtime.plan, workingMemory: runtime.memory, result: runtime.result, error: message, currentStep: "Mission failed", agentSummary: message, completedAt: changedAt, updatedAt: changedAt }).where(and(eq(agentMissions.workspaceId, input.workspaceId), eq(agentMissions.id, input.missionId), eq(agentMissions.status, "RUNNING"))).returning({ id: agentMissions.id });
+    const failed = await tx.update(agentMissions).set({ status: "FAILED", workingMemory: runtime.memory, result: runtime.result, error: message, currentStep: "Mission failed", agentSummary: message, completedAt: changedAt, updatedAt: changedAt }).where(and(eq(agentMissions.workspaceId, input.workspaceId), eq(agentMissions.id, input.missionId), eq(agentMissions.status, "RUNNING"))).returning({ id: agentMissions.id });
     if (!failed.length) return;
     await tx.update(agentPlans).set({ status: "FAILED", updatedAt: changedAt }).where(and(eq(agentPlans.workspaceId, input.workspaceId), eq(agentPlans.missionId, input.missionId)));
     await tx.update(agentMissionTargets).set({ status: "FAILED", currentStep: "Mission failed", updatedAt: changedAt }).where(and(eq(agentMissionTargets.workspaceId, input.workspaceId), eq(agentMissionTargets.missionId, input.missionId)));
@@ -675,7 +719,7 @@ export async function executeMission(input: MissionRunInput, dependencies: Runne
     now: dependencies.now ?? (() => new Date()), fetchResearch: dependencies.websiteResearch ?? (mission.provider === "mock-ai" ? mockWebsiteResearch : defaultWebsiteResearch),
     plan, memory: missionWorkingMemorySchema.safeParse(mission.workingMemory).success ? missionWorkingMemorySchema.parse(mission.workingMemory) : emptyMissionWorkingMemory(),
     result: persistedResult(mission.result),
-    artifacts: new Map(), consecutiveFailures: 0,
+    artifacts: new Map(),
   };
   await hydrateRuntime(input, runtime);
   await recoverInterruptedPlan(input, runtime);
@@ -687,9 +731,9 @@ export async function executeMission(input: MissionRunInput, dependencies: Runne
         await event(input, runtime, { type: "MISSION_EXECUTION_STOPPED", title: "Autonomous execution stopped after cancellation.", severity: "WARNING", metadata: { iteration: runtime.mission.iteration } });
         return runtime.result;
       }
-      const stop = checkMissionStopConditions({ plan: runtime.plan, workingMemory: runtime.memory, iteration: runtime.mission.iteration, maximumIterations: runtime.mission.maximumIterations, consecutiveFailures: runtime.consecutiveFailures, cancelled: fresh?.status === "CANCELLED" });
+      const stop = checkMissionStopConditions({ plan: runtime.plan, workingMemory: runtime.memory, iteration: runtime.mission.iteration, maximumIterations: runtime.mission.maximumIterations, cancelled: fresh?.status === "CANCELLED" });
       if (stop.stop && runtime.plan.steps.some((step) => step.status === "PENDING")) throw new Error(`MISSION_STOPPED: ${stop.reason}`);
-      const decision = await decideNextMissionStep({ ai: runtime.ai, objective: runtime.mission.objective, plan: runtime.plan, workingMemory: runtime.memory, iteration: runtime.mission.iteration, maximumIterations: runtime.mission.maximumIterations });
+      const decision = decideNextMissionStep({ plan: runtime.plan, iteration: runtime.mission.iteration, maximumIterations: runtime.mission.maximumIterations });
       if (decision.action === "COMPLETE") break;
       if (decision.action === "FAIL") throw new Error(`MISSION_DECISION_FAILED: ${decision.reason}`);
       if (decision.action !== "EXECUTE_STEP" || !decision.stepId) throw new Error(`MISSION_DECISION_UNSUPPORTED: ${decision.action}`);
@@ -704,12 +748,14 @@ export async function executeMission(input: MissionRunInput, dependencies: Runne
       try {
         const output = await registry.execute(step.type, step.input ?? {}, { workspaceId: input.workspaceId, missionId: input.missionId, userId: runtime.userId, ai: runtime.ai, workingMemory: runtime.memory }) as Record<string, unknown>;
         await markStep(input, runtime, step.id, "COMPLETED", output);
-        runtime.consecutiveFailures = 0;
+        if (output.repeatPipeline === true) {
+          await resetPlanSteps(input, runtime, ["FETCH_WEBSITE", "RESEARCH_COMPANY", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT"]);
+          await event(input, runtime, { type: "MISSION_PIPELINE_EXPANDED", title: "Navo re-entered the bounded research pipeline.", description: "Additional checkpoint-selected accounts will run through website, research, signals and qualification.", metadata: { addedAccountIds: output.addedAccountIds, iteration: runtime.mission.iteration } });
+        }
         if (call) await db.update(toolCalls).set({ status: "COMPLETED", data: { missionId: input.missionId, stepId: step.id, type: step.type, iteration: runtime.mission.iteration, output }, updatedAt: runtime.now() }).where(eq(toolCalls.id, call.id));
         await event(input, runtime, { type: "TOOL_COMPLETED", title: `${registry.get(step.type).label} completed.`, description: runtime.memory.lastObservation ?? undefined, severity: "SUCCESS", metadata: { stepId: step.id, type: step.type, toolCallId: call?.id } });
         await persistRuntime(input, runtime, step.title);
       } catch (cause) {
-        runtime.consecutiveFailures += 1;
         const message = messageFrom(cause);
         await markStep(input, runtime, step.id, "FAILED", {}, message);
         if (call) await db.update(toolCalls).set({ status: "FAILED", data: { missionId: input.missionId, stepId: step.id, type: step.type, error: message }, updatedAt: runtime.now() }).where(eq(toolCalls.id, call.id));
@@ -718,13 +764,22 @@ export async function executeMission(input: MissionRunInput, dependencies: Runne
     }
     const completedAt = runtime.now();
     const best = runtime.memory.bestAccountId ? runtime.artifacts.get(runtime.memory.bestAccountId) : undefined;
-    await db.transaction(async (tx) => {
-      const completed = await tx.update(agentMissions).set({ status: "COMPLETED", plan: runtime.plan, workingMemory: runtime.memory, result: runtime.result, error: null, progress: 100, processedCount: runtime.memory.researchedAccountIds.length, qualifiedCount: [...runtime.artifacts.values()].filter((artifact) => (artifact.qualification?.score ?? 0) >= 60).length, pendingApprovalCount: 0, currentStep: "Mission completed", agentSummary: runtime.result.summary ?? runtime.memory.lastObservation ?? "Autonomous mission completed.", targetAccountId: runtime.memory.bestAccountId, completedAt, updatedAt: completedAt }).where(and(eq(agentMissions.workspaceId, input.workspaceId), eq(agentMissions.id, input.missionId), eq(agentMissions.status, "RUNNING"))).returning({ id: agentMissions.id });
-      if (!completed.length) return;
+    const didComplete = await db.transaction(async (tx) => {
+      const completed = await tx.update(agentMissions).set({ status: "COMPLETED", workingMemory: runtime.memory, result: runtime.result, error: null, progress: 100, processedCount: runtime.memory.researchedAccountIds.length, qualifiedCount: [...runtime.artifacts.values()].filter((artifact) => (artifact.qualification?.score ?? 0) >= 60).length, pendingApprovalCount: 0, currentStep: "Mission completed", agentSummary: runtime.result.summary ?? runtime.memory.lastObservation ?? "Autonomous mission completed.", targetAccountId: runtime.memory.bestAccountId, completedAt, updatedAt: completedAt }).where(and(eq(agentMissions.workspaceId, input.workspaceId), eq(agentMissions.id, input.missionId), eq(agentMissions.status, "RUNNING"))).returning({ id: agentMissions.id });
+      if (!completed.length) return false;
       await tx.update(agentPlans).set({ status: "COMPLETED", updatedAt: completedAt }).where(and(eq(agentPlans.workspaceId, input.workspaceId), eq(agentPlans.missionId, input.missionId)));
       await tx.update(agentMissionTargets).set({ status: "COMPLETED", currentStep: "Mission completed", updatedAt: completedAt }).where(and(eq(agentMissionTargets.workspaceId, input.workspaceId), eq(agentMissionTargets.missionId, input.missionId)));
       await tx.insert(agentEvents).values({ workspaceId: input.workspaceId, createdBy: runtime.userId, missionId: input.missionId, accountId: best?.account.id, messageId: runtime.result.messageId, taskId: runtime.result.taskIds[0], type: "MISSION_COMPLETED", title: "Autonomous mission completed.", description: runtime.result.summary, severity: "SUCCESS", occurredAt: completedAt, metadata: { accountsInvestigated: runtime.memory.researchedAccountIds.length, bestAccountId: runtime.memory.bestAccountId, evidenceCount: runtime.result.evidenceIds.length, signalCount: runtime.result.signalIds.length, draftStatus: "DRAFT" } });
+      return true;
     });
+    if (didComplete && runtime.mission.autoContinue) {
+      try {
+        await scheduleMissionContinuation(input, { ai: runtime.ai, enqueueMission: dependencies.enqueueMission });
+      } catch (cause) {
+        const message = messageFrom(cause);
+        await event(input, runtime, { type: "MISSION_CONTINUATION_FAILED", title: "Navo could not prepare the next bounded Mission.", description: message, severity: "ERROR", metadata: { continuationDepth: runtime.mission.continuationDepth, maximumContinuations: runtime.mission.maximumContinuations } });
+      }
+    }
     return runtime.result;
   } catch (cause) {
     await failMission(input, runtime, cause);

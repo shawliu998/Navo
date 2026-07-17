@@ -232,7 +232,14 @@ export type CreateMissionInput = {
   };
   provider?: string;
   model?: string;
+  plannerMode?: "AI" | "DETERMINISTIC_FALLBACK";
+  plannerFallbackReason?: string;
   retryOfMissionId?: string;
+  parentMissionId?: string;
+  rootMissionId?: string;
+  continuationDepth?: number;
+  maximumContinuations?: number;
+  autoContinue?: boolean;
 };
 
 export async function getAgentStatus(workspaceId: string) {
@@ -308,7 +315,11 @@ async function createMissionInTransaction(tx: MissionTransaction, workspaceId: s
     playId: input.playId, inputSource: input.inputSource ?? "DEMO_ACCOUNTS", approvalPolicy: input.approvalPolicy ?? "REQUIRED_FOR_OUTBOUND",
     targetCount, maximumAccounts: input.maximumAccounts ?? Math.max(targetCount, 3), maximumIterations: input.maximumIterations ?? 20, estimatedCostLimit: input.estimatedCostLimit?.toFixed(2),
     testMode: input.testMode ?? true, dueAt: input.dueAt, targetCriteria: input.targetCriteria ?? {}, stopConditions: input.stopConditions ?? [],
-    plan: input.plan, workingMemory: {}, result: {}, error: null, iteration: 0, replanCount: 0, retryOfMissionId: input.retryOfMissionId ?? null, targetAccountId, provider: input.provider, model: input.model,
+    plan: input.plan, workingMemory: {}, result: {}, error: null, iteration: 0, replanCount: 0, retryOfMissionId: input.retryOfMissionId ?? null,
+    parentMissionId: input.parentMissionId ?? null, rootMissionId: input.rootMissionId ?? null, continuationDepth: input.continuationDepth ?? 0,
+    maximumContinuations: input.maximumContinuations ?? 0, autoContinue: input.autoContinue ?? false,
+    targetAccountId, provider: input.provider, model: input.model,
+    plannerMode: input.plannerMode ?? "AI", plannerFallbackReason: input.plannerFallbackReason ?? null,
     currentStep: initialStatus === "ACTIVE" || initialStatus === "RUNNING" ? planSteps[0]?.title : "Plan ready for review", progress: 0,
     startedAt: initialStatus === "ACTIVE" || initialStatus === "RUNNING" ? new Date() : null, agentSummary: input.plan ? "Navo generated a schema-validated AI mission plan." : "Navo prepared a deterministic legacy execution plan.",
   }).returning();
@@ -317,12 +328,53 @@ async function createMissionInTransaction(tx: MissionTransaction, workspaceId: s
   if (!plan) throw new Error("Plan insert did not return a row");
   await tx.insert(agentPlanSteps).values(planSteps.map((step, index) => ({ workspaceId, createdBy: userId, missionId: mission.id, planId: plan.id, order: index + 1, title: step.title, description: step.description, status: "PENDING", relatedPlayNodeId: step.type, input: { testMode: input.testMode ?? true, planStepId: step.id, dependsOn: step.dependsOn, ...step.input }, output: step.output ?? {} })));
   if (selectedAccounts.length) await tx.insert(agentMissionTargets).values(selectedAccounts.map((account) => ({ workspaceId, createdBy: userId, missionId: mission.id, accountId: account.id, priority: "MEDIUM", whySelected: "Provided by the operator as an initial mission candidate.", currentStep: "Plan ready for execution", status: "PENDING" })));
-  await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId: mission.id, type: initialStatus === "ACTIVE" ? "MISSION_STARTED" : "MISSION_CREATED", title: initialStatus === "ACTIVE" ? "Navo started the mission." : "Navo prepared a mission draft.", severity: "SUCCESS", occurredAt: new Date(), metadata: { source: input.provider ?? "deterministic-legacy", targetCount } });
+  await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId: mission.id, type: initialStatus === "ACTIVE" ? "MISSION_STARTED" : "MISSION_CREATED", title: initialStatus === "ACTIVE" ? "Navo started the mission." : "Navo prepared a mission draft.", severity: "SUCCESS", occurredAt: new Date(), metadata: { source: input.provider ?? "deterministic-legacy", targetCount, plannerMode: input.plannerMode ?? "AI", fallbackReason: input.plannerFallbackReason ?? null } });
   return mission;
 }
 
 export async function createMission(workspaceId: string, userId: string, input: CreateMissionInput) {
   return db.transaction((tx) => createMissionInTransaction(tx, workspaceId, userId, input));
+}
+
+export async function createMissionContinuation(workspaceId: string, userId: string, parentMissionId: string, input: CreateMissionInput) {
+  return db.transaction(async (tx) => {
+    const [parent] = await tx.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.id, parentMissionId))).for("update").limit(1);
+    if (!parent) return { kind: "NOT_FOUND" as const };
+    const [existing] = await tx.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.parentMissionId, parentMissionId))).limit(1);
+    if (existing) return { kind: "EXISTS" as const, mission: existing };
+    if (parent.status !== "COMPLETED") return { kind: "NOT_COMPLETED" as const, status: parent.status };
+    if (!parent.autoContinue) return { kind: "DISABLED" as const };
+    if (parent.continuationDepth >= parent.maximumContinuations) return { kind: "LIMIT_REACHED" as const };
+    const rootMissionId = parent.rootMissionId ?? parent.id;
+    const continuation = await createMissionInTransaction(tx, workspaceId, userId, {
+      ...input,
+      status: "READY",
+      parentMissionId: parent.id,
+      rootMissionId,
+      continuationDepth: parent.continuationDepth + 1,
+      maximumContinuations: parent.maximumContinuations,
+      autoContinue: true,
+    });
+    const changedAt = new Date();
+    await tx.insert(agentEvents).values([
+      { workspaceId, createdBy: userId, missionId: parent.id, accountId: continuation.targetAccountId, type: "MISSION_CONTINUATION_CREATED", title: "Navo created the next bounded Mission.", severity: "SUCCESS", occurredAt: changedAt, metadata: { continuationMissionId: continuation.id, rootMissionId, continuationDepth: continuation.continuationDepth, maximumContinuations: continuation.maximumContinuations } },
+      { workspaceId, createdBy: userId, missionId: continuation.id, accountId: continuation.targetAccountId, type: "MISSION_CONTINUATION_LINKED", title: "Mission linked to its autonomous predecessor.", severity: "INFO", occurredAt: changedAt, metadata: { parentMissionId: parent.id, rootMissionId, continuationDepth: continuation.continuationDepth, maximumContinuations: continuation.maximumContinuations } },
+    ]);
+    return { kind: "CREATED" as const, mission: continuation };
+  });
+}
+
+export async function getPendingMissionContinuationParents(workspaceId: string) {
+  const candidates = await db.select().from(agentMissions).where(and(
+    eq(agentMissions.workspaceId, workspaceId),
+    eq(agentMissions.status, "COMPLETED"),
+    eq(agentMissions.autoContinue, true),
+    sql`${agentMissions.continuationDepth} < ${agentMissions.maximumContinuations}`,
+  )).orderBy(desc(agentMissions.completedAt)).limit(20);
+  if (!candidates.length) return [];
+  const children = await db.select({ parentMissionId: agentMissions.parentMissionId }).from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), inArray(agentMissions.parentMissionId, candidates.map((mission) => mission.id))));
+  const claimedParents = new Set(children.flatMap((child) => child.parentMissionId ? [child.parentMissionId] : []));
+  return candidates.filter((mission) => !claimedParents.has(mission.id));
 }
 
 const TERMINAL_MISSION_STATUSES = ["COMPLETED", "FAILED", "CANCELLED"];
@@ -345,7 +397,7 @@ export async function createMissionRetry(workspaceId: string, userId: string, mi
       targetAccountId: original.targetAccountId, targetCount: 1, maximumAccounts: original.maximumAccounts ?? 1,
       estimatedCostLimit: original.estimatedCostLimit === null ? undefined : Number(original.estimatedCostLimit),
       testMode: original.testMode, dueAt: original.dueAt ?? undefined, targetCriteria: original.targetCriteria as Record<string, unknown>, stopConditions: original.stopConditions as unknown[],
-      status: "READY", plan, provider: "mock-ai", model: "deterministic-v1", retryOfMissionId: original.id,
+      status: "READY", plan, provider: "mock-ai", model: "deterministic-v1", plannerMode: original.plannerMode as CreateMissionInput["plannerMode"], plannerFallbackReason: original.plannerFallbackReason ?? undefined, retryOfMissionId: original.id,
     });
     const now = new Date();
     await tx.insert(agentEvents).values([
@@ -428,6 +480,7 @@ export async function prepareMissionStart(workspaceId: string, userId: string, m
     const [updated] = await tx.update(agentMissions).set({ status: "RUNNING", error: null, result: {}, workingMemory: {}, iteration: 0, replanCount: 0, queuedAt: changedAt, startedAt: mission.startedAt ?? changedAt, completedAt: null, progress: 0, currentStep: "Queued for autonomous execution", agentSummary: "Mission queued; Navo will select and compare target accounts autonomously.", updatedAt: changedAt }).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.id, missionId), eq(agentMissions.status, mission.status))).returning();
     if (!updated) return { kind: "CONFLICT" as const };
     await tx.update(agentPlans).set({ status: "ACTIVE", updatedAt: changedAt }).where(and(eq(agentPlans.workspaceId, workspaceId), eq(agentPlans.missionId, missionId)));
+    await tx.update(agentPlanSteps).set({ status: "PENDING", output: {}, errorCode: null, errorMessage: null, startedAt: null, completedAt: null, durationMs: null, updatedAt: changedAt }).where(and(eq(agentPlanSteps.workspaceId, workspaceId), eq(agentPlanSteps.missionId, missionId)));
     await tx.update(agentMissionTargets).set({ status: "QUEUED", currentStep: "Queued for autonomous execution", updatedAt: changedAt }).where(and(eq(agentMissionTargets.workspaceId, workspaceId), eq(agentMissionTargets.missionId, missionId)));
     await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId, accountId: mission.targetAccountId, type: "MISSION_QUEUED", title: "Autonomous mission queued for execution.", severity: "INFO", occurredAt: changedAt, metadata: { queue: "navo-runs", jobName: "mission.execute", maximumIterations: mission.maximumIterations } });
     return { kind: "OK" as const, mission: updated, alreadyRunning: false };

@@ -10,6 +10,7 @@ import {
   conversationSummaryOutputSchema,
   memoryOutputSchema,
   messageOutputSchema,
+  missionContinuationDecisionSchema,
   missionPlanSchema,
   missionResultSchema,
   missionStepTypeSchema,
@@ -47,7 +48,7 @@ const validPlan = {
 
 describe("structured AI contracts", () => {
   it("enforces the exact MissionPlan shape, mission types, and step types", () => {
-    expect(missionTypeSchema.options).toEqual(["ACCOUNT_RESEARCH", "ACCOUNT_QUALIFICATION", "OUTREACH_PREPARATION", "REPLY_FOLLOW_UP"]);
+    expect(missionTypeSchema.options).toEqual(["OPPORTUNITY_DISCOVERY", "ACCOUNT_RESEARCH", "ACCOUNT_QUALIFICATION", "OUTREACH_PREPARATION", "REPLY_FOLLOW_UP"]);
     expect(missionStepTypeSchema.options).toEqual(["LOAD_SELLER_KNOWLEDGE", "SELECT_TARGET_ACCOUNTS", "CREATE_TARGET_ACCOUNT", "FETCH_WEBSITE", "RESEARCH_COMPANY", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "RANK_ACCOUNTS", "DISCOVER_CONTACTS", "GENERATE_OUTREACH", "CREATE_TASK", "UPDATE_MEMORY", "SUMMARIZE_MISSION"]);
     expect(missionPlanSchema.safeParse(validPlan).success).toBe(true);
     expect(missionPlanSchema.safeParse({ ...validPlan, missionType: "EXPANSION_SIGNAL_OUTREACH" }).success).toBe(false);
@@ -88,7 +89,7 @@ describe("structured AI contracts", () => {
   });
 
   it("puts prompt-injection, quote, secrecy, and sending guardrails in every operation instruction", () => {
-    for (const operation of ["mission-plan", "mission-next-step", "mission-replan", "company-research", "signal-extraction", "qualification", "rank-accounts", "contact-discovery", "message", "mission-summary"] as const) {
+    for (const operation of ["mission-plan", "mission-continuation", "website-checkpoint", "qualification-checkpoint", "ranking-checkpoint", "company-research", "signal-extraction", "qualification", "rank-accounts", "contact-discovery", "message", "mission-summary"] as const) {
       const instruction = buildOperationInstruction(operation);
       expect(instruction).toContain("untrusted");
       expect(instruction).toContain("Quotes must be literal excerpts from supplied input");
@@ -128,6 +129,7 @@ describe("AI provider contract regressions", () => {
   it("returns a deterministic new mission plan and all newly shaped mock outputs", async () => {
     const provider = new MockAIProvider();
     const plan = await provider.generateStructured({ operation: "mission-plan", systemInstruction: "Plan.", input: { missionType: "OUTREACH_PREPARATION" }, outputSchema: missionPlanSchema, promptVersion: "test-v2" });
+    const continuation = await provider.generateStructured({ operation: "mission-continuation", systemInstruction: "Continue.", input: { completedMission: { type: "OPPORTUNITY_DISCOVERY", bestAccountId: "00000000-0000-4000-8000-000000000101", targetCriteria: validPlan.targetCriteria }, remainingAccounts: [] }, outputSchema: missionContinuationDecisionSchema, promptVersion: "test-v1" });
     const research = await provider.generateStructured({ operation: "company-research", systemInstruction: "Research.", input: {}, outputSchema: companyResearchOutputSchema, promptVersion: "test-v2" });
     const signals = await provider.generateStructured({ operation: "signal-extraction", systemInstruction: "Extract.", input: {}, outputSchema: salesSignalOutputSchema, promptVersion: "test-v2" });
     const accountId = "00000000-0000-4000-8000-000000000101";
@@ -135,6 +137,7 @@ describe("AI provider contract regressions", () => {
     const draft = await provider.generateStructured({ operation: "message", systemInstruction: "Draft.", input: {}, outputSchema: outreachDraftSchema, promptVersion: "test-v2" });
     expect(plan.data.missionType).toBe("OUTREACH_PREPARATION");
     expect(plan.data.steps[0]).toEqual(expect.objectContaining({ id: "load-knowledge", type: "LOAD_SELLER_KNOWLEDGE" }));
+    expect(continuation.data).toEqual(expect.objectContaining({ action: "CREATE_SUCCESSOR", missionType: "OUTREACH_PREPARATION", targetAccountId: "00000000-0000-4000-8000-000000000101" }));
     expect(research.data).toEqual(expect.objectContaining({ website: "https://nova-automation.example" }));
     expect(signals.data.signals[0]).toEqual(expect.objectContaining({ type: "EXPANSION", rationale: expect.any(String) }));
     expect(contacts.data.candidates[0]).toEqual(expect.objectContaining({ fullName: "Alex Morgan", department: "QUALITY", email: null }));

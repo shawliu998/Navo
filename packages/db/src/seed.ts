@@ -157,7 +157,7 @@ await db.transaction(async (tx) => {
     { category: "TIMING", fact: "Requested follow-up in Q4", confidence: "0.990" },
     { category: "COMPLIANCE", fact: "Contact requested unsubscribe", confidence: "1.000" },
   ];
-  await tx.insert(memoryFacts).values(memoryRows.map((memory, index) => ({ id: id(1370 + index), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, accountId: id(100 + index), contactId: id(200 + index), conversationId: id(1050 + index), ...memory, sourceMessageId: id(1150 + index), validFrom: daysAgo(index) })));
+  await tx.insert(memoryFacts).values(memoryRows.map((memory, index) => ({ id: id(1370 + index), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, accountId: id(100 + index), contactId: id(200 + index), conversationId: id(1050 + index), ...memory, sourceType: "MESSAGE", sourceId: id(1150 + index), sourceMessageId: id(1150 + index), evidenceIds: [], validFrom: daysAgo(index) })));
   const actionRows = [
     { type: "SCHEDULE_MEETING", title: "Schedule discovery meeting", rationale: "The contact expressed positive intent and proposed a time.", priority: "HIGH" },
     { type: "ANSWER_QUESTION", title: "Prepare technical answer", rationale: "The contact asked for validated technical specifications.", priority: "HIGH" },
@@ -230,7 +230,7 @@ await db.transaction(async (tx) => {
       ["update-memory", "UPDATE_MEMORY", "Update memory", "Persist sourced account memory."],
       ["summarize-mission", "SUMMARIZE_MISSION", "Summarize mission", "Persist the final mission result."],
     ].map(([stepId, type, title, description], index, all) => ({ id: stepId!, type: type!, title: title!, description: description!, status: "PENDING", dependsOn: index ? [all[index - 1]![0]!] : [] })),
-    stopConditions: ["Best account, DRAFT, task and memory are persisted", "Maximum 20 iterations", "Two consecutive steps fail"],
+    stopConditions: ["Best account or explicit no-match outcome is persisted", "Maximum 20 iterations"],
     expectedOutputs: ["Compared accounts", "Evidence-linked qualification", "Best account", "Evidence-backed contact", "Safe outreach DRAFT", "Task", "Memory", "Mission summary"],
     assumptions: ["All website data comes from the repository-local demo fixture."],
   };

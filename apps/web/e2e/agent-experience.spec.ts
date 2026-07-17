@@ -100,12 +100,13 @@ test.describe.serial("Navo Agent Experience Sprint 0.3", () => {
     const missionId = new URL(page.url()).pathname.split("/").pop()!;
     await expect.poll(async () => page.evaluate(async (id) => (await (await fetch(`/api/missions/${id}`)).json()).data.mission.status, missionId), { timeout: 30_000 }).toBe("COMPLETED");
     const saved = await page.evaluate(async (id) => (await fetch(`/api/missions/${id}`)).json(), missionId) as {
-      data: { mission: { plan: { objective: string; steps: Array<{ id: string; type: string; status: string }> } } };
+      data: { mission: { plan: { objective: string; steps: Array<{ id: string; type: string; status: string }> } }; steps: Array<{status:string}> };
     };
     const previewPlan = preview.data.plan as { objective: string; steps: Array<{ id: string; type: string }> };
     expect(saved.data.mission.plan.objective).toBe(previewPlan.objective);
     expect(saved.data.mission.plan.steps.map(({ id, type }) => ({ id, type }))).toEqual(previewPlan.steps.map(({ id, type }) => ({ id, type })));
-    expect(saved.data.mission.plan.steps.every((step) => step.status === "COMPLETED")).toBe(true);
+    expect(saved.data.mission.plan.steps.every((step) => step.status === "PENDING")).toBe(true);
+    expect(saved.data.steps.every((step) => ["COMPLETED", "SKIPPED"].includes(step.status))).toBe(true);
   });
 
   test("Mission detail shows plan, evidence-aware targets, activity and lifecycle controls", async ({ page }) => {
@@ -156,7 +157,7 @@ test.describe.serial("Navo Agent Experience Sprint 0.3", () => {
     await page.screenshot({ path: path.join(shots, "memory.png"), fullPage: true });
     await page.goto("/app/agents");
     await expect(page.getByRole("heading", { name: "Capabilities" })).toBeVisible();
-    await expect(page.getByText("Node attempts", { exact: true })).toBeVisible();
+    await expect(page.getByText("Executed steps", { exact: true })).toBeVisible();
     await page.screenshot({ path: path.join(shots, "capabilities.png"), fullPage: true });
   });
 });

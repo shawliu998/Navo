@@ -15,6 +15,8 @@ export const missionInputSchema = z.object({
   targetCount: z.number().int().min(0).max(1_000).optional(),
   maximumAccounts: z.number().int().min(1).max(1_000).optional(),
   maximumIterations: z.number().int().min(1).max(100).optional(),
+  maximumContinuations: z.number().int().min(0).max(10).optional(),
+  autoContinue: z.boolean().optional(),
   estimatedCostLimit: z.number().min(0).max(10_000).optional(),
   testMode: z.boolean().optional(),
   dueAt: z.string().datetime().optional(),
@@ -24,6 +26,8 @@ export const missionInputSchema = z.object({
   plan: missionPlanSchema.optional(),
   provider: z.string().trim().min(1).max(100).optional(),
   model: z.string().trim().min(1).max(200).optional(),
+  plannerMode: z.enum(["AI", "DETERMINISTIC_FALLBACK"]).optional(),
+  fallbackReason: z.string().trim().max(2_000).nullable().optional(),
 });
 
 export const missionPatchSchema = missionInputSchema.pick({

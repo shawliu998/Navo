@@ -15,6 +15,7 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "e2e": "pnpm --filter @navo/web e2e",
+    "smoke:deepseek": "pnpm --filter @navo/worker smoke:deepseek",
     "db:generate": "pnpm --filter @navo/db db:generate",
     "db:migrate": "pnpm --filter @navo/db db:migrate",
     "db:seed": "pnpm --filter @navo/db db:seed",

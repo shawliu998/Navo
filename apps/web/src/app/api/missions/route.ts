@@ -26,14 +26,14 @@ export async function POST(request: Request) {
     const accountGuard = parsed.data.targetAccountId ? guardMissionAccount({ accountIds: [parsed.data.targetAccountId], workspaceId: DEMO_WORKSPACE_ID, account: account ?? null }) : null;
     if (accountGuard && !accountGuard.ok) return apiError(accountGuard.code, accountGuard.message, 422);
     const preview = parsed.data.plan
-      ? mockMissionPreviewSchema.safeParse({ plan: parsed.data.plan, provider: parsed.data.provider, model: parsed.data.model })
+      ? mockMissionPreviewSchema.safeParse({ plan: parsed.data.plan, provider: parsed.data.provider, model: parsed.data.model, plannerMode: parsed.data.plannerMode, fallbackReason: parsed.data.fallbackReason })
       : null;
     if (preview && !preview.success) return apiError("INVALID_MISSION_PREVIEW", "Mission preview must be the schema-validated Mock plan shown to the operator.", 422, preview.error.flatten());
     const generated = parsed.data.plan
-      ? { data: preview!.data.plan, provider: preview!.data.provider, model: preview!.data.model }
+      ? { data: preview!.data.plan, provider: preview!.data.provider, model: preview!.data.model, plannerMode: preview!.data.plannerMode, fallbackReason: preview!.data.fallbackReason ?? undefined }
       : await planMission(getAIProvider(), { name: parsed.data.name, objective: parsed.data.objective, targetDescription: "Autonomously select and compare matching accounts in the demo workspace." });
     const shouldStart = parsed.data.status === "ACTIVE" || parsed.data.status === "RUNNING";
-    const mission = await createMission(DEMO_WORKSPACE_ID, DEMO_USER_ID, { ...parsed.data, targetAccountId: accountGuard?.ok ? accountGuard.accountId : undefined, status: shouldStart ? "READY" : parsed.data.status, targetCount: parsed.data.targetCount ?? 0, maximumAccounts: parsed.data.maximumAccounts ?? 3, maximumIterations: parsed.data.maximumIterations ?? 20, operatingMode: "AUTONOMOUS", plan: generated.data, provider: generated.provider, model: generated.model, dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : undefined });
+    const mission = await createMission(DEMO_WORKSPACE_ID, DEMO_USER_ID, { ...parsed.data, targetAccountId: accountGuard?.ok ? accountGuard.accountId : undefined, status: shouldStart ? "READY" : parsed.data.status, targetCount: parsed.data.targetCount ?? 0, maximumAccounts: parsed.data.maximumAccounts ?? 3, maximumIterations: parsed.data.maximumIterations ?? 20, operatingMode: "AUTONOMOUS", plan: generated.data, provider: generated.provider, model: generated.model, plannerMode: generated.plannerMode, plannerFallbackReason: generated.fallbackReason, dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : undefined });
     let responseMission = mission;
     if (shouldStart) {
       const started = await prepareMissionStart(DEMO_WORKSPACE_ID, DEMO_USER_ID, mission.id);
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
         return apiError("MISSION_QUEUE_FAILED", message, 503, { missionId: mission.id });
       }
     }
-    return NextResponse.json({ data: responseMission, missionId: mission.id, plan: generated.data }, { status: 201 });
+    return NextResponse.json({ data: responseMission, missionId: mission.id, plan: generated.data, plannerMode: generated.plannerMode, fallbackReason: generated.fallbackReason ?? null }, { status: 201 });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "Mission could not be created.";
     return apiError(message.startsWith("MISSION_TARGET") ? "MISSION_TARGET_REQUIRED" : "MISSION_PLANNER_FAILED", message, message.startsWith("MISSION_TARGET") ? 422 : 502);

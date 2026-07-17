@@ -64,6 +64,20 @@
       "when": 1784290785164,
       "tag": "0008_lean_captain_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784302860019,
+      "tag": "0009_flaky_champions",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784308242631,
+      "tag": "0010_giant_guardian",
+      "breakpoints": true
     }
   ]
 }

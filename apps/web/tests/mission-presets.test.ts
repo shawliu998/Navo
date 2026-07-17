@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findPreset, GOLDEN_MISSION_PRESET } from "../src/lib/mission-presets";
+import { findPreset, GOLDEN_MISSION_PRESET, MISSION_PRESETS, OPPORTUNITY_DISCOVERY_PRESET } from "../src/lib/mission-presets";
 
 describe("mission quick-start presets", () => {
   it("exposes the golden DACH industrial outreach preset", () => {
@@ -9,7 +9,9 @@ describe("mission quick-start presets", () => {
     expect(GOLDEN_MISSION_PRESET.maximumAccounts).toBe(3);
     expect(GOLDEN_MISSION_PRESET.countries).toContain("Germany");
     expect(GOLDEN_MISSION_PRESET.countries).toContain("Switzerland");
-    expect(GOLDEN_MISSION_PRESET.type).toBe("TARGET_ACCOUNT_DISCOVERY");
+    expect(GOLDEN_MISSION_PRESET.type).toBe("OUTREACH_PREPARATION");
+    expect(OPPORTUNITY_DISCOVERY_PRESET.type).toBe("OPPORTUNITY_DISCOVERY");
+    expect(MISSION_PRESETS).toHaveLength(3);
   });
 
   it("finds the golden preset by id and returns undefined for unknown ids", () => {

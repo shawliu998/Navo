@@ -12,20 +12,21 @@ const plan = missionPlanSchema.parse({
     { id: "b", type: "SELECT_TARGET_ACCOUNTS", title: "Select", description: "Select accounts.", status: "PENDING", dependsOn: ["a"] },
     { id: "c", type: "FETCH_WEBSITE", title: "Fetch", description: "Fetch websites.", status: "PENDING", dependsOn: ["b"] },
     { id: "d", type: "RESEARCH_COMPANY", title: "Research", description: "Research accounts.", status: "PENDING", dependsOn: ["c"] },
+    { id: "e", type: "SUMMARIZE_MISSION", title: "Summary", description: "Summarize mission.", status: "PENDING", dependsOn: ["d"] },
   ],
   stopConditions: ["Stop at the bound"], expectedOutputs: ["Research"], assumptions: [],
 });
 
 describe("autonomous mission decision helpers", () => {
-  it("selects the first dependency-ready step without a model call", async () => {
+  it("selects the first dependency-ready step without a model call", () => {
     expect(executablePlanSteps(plan).map((step) => step.id)).toEqual(["b"]);
-    const decision = await decideNextMissionStep({ ai: new MockAIProvider(), objective: plan.objective, plan, workingMemory: emptyMissionWorkingMemory(), iteration: 1, maximumIterations: 20 });
+    const decision = decideNextMissionStep({ plan, iteration: 1, maximumIterations: 20 });
     expect(decision).toMatchObject({ action: "EXECUTE_STEP", stepId: "b" });
   });
 
   it("stops at iteration and failure bounds", () => {
-    expect(checkMissionStopConditions({ plan, workingMemory: emptyMissionWorkingMemory(), iteration: 20, maximumIterations: 20, consecutiveFailures: 0 }).reason).toContain("Maximum");
-    expect(checkMissionStopConditions({ plan, workingMemory: emptyMissionWorkingMemory(), iteration: 1, maximumIterations: 20, consecutiveFailures: 2 }).reason).toContain("consecutive");
+    expect(checkMissionStopConditions({ plan, workingMemory: emptyMissionWorkingMemory(), iteration: 20, maximumIterations: 20, cancelled: false }).reason).toContain("Maximum");
+    expect(checkMissionStopConditions({ plan, workingMemory: emptyMissionWorkingMemory(), iteration: 1, maximumIterations: 20, cancelled: true }).reason).toContain("cancelled");
   });
 
   it("validates tool inputs and outputs through the registry", async () => {

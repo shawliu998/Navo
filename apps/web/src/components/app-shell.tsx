@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity,
   BarChart3,
   BookOpen,
   Bot,
@@ -11,13 +10,11 @@ import {
   Building2,
   ChevronDown,
   CircleHelp,
-  GitBranch,
   LayoutDashboard,
   Link2,
   ListChecks,
   ListTodo,
   MessageSquareText,
-  PlaySquare,
   Radar,
   Settings,
   Target,
@@ -43,13 +40,6 @@ const navGroups = [
     ],
   },
   {
-    label: "Execute",
-    items: [
-      ["Playbooks", "/app/plays", GitBranch],
-      ["Sequences", "/app/sequences", PlaySquare],
-    ],
-  },
-  {
     label: "Human Control",
     items: [
       ["Approvals", "/app/approvals", ListChecks],
@@ -66,7 +56,6 @@ const navGroups = [
   {
     label: "Monitor",
     items: [
-      ["Agent Activity", "/app/runs", Activity],
       ["Analytics", "/app/analytics", BarChart3],
     ],
   },
