@@ -9,5 +9,5 @@ export function canEditDraftMessage(message: { direction: string; status: string
   return message.direction === "OUTBOUND" && message.status === "DRAFT";
 }
 
-export const matchesDraftRevision = (currentRevision: string, submittedRevision: string) => currentRevision === submittedRevision;
+export const matchesDraftRevision = (currentRevision: number, submittedRevision: number) => currentRevision === submittedRevision;
 export const preserveOriginalDraft = (original: string | null, current: string) => original ?? current;

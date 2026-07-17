@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { boolean, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 const tenantColumns = () => ({
@@ -93,6 +94,7 @@ export const agentMissions = pgTable("agent_missions", {
   plan: jsonb("plan").default({}).notNull(),
   result: jsonb("result").default({}).notNull(),
   error: text("error"),
+  retryOfMissionId: uuid("retry_of_mission_id"),
   targetAccountId: uuid("target_account_id"),
   provider: text("provider"),
   model: text("model"),
@@ -101,7 +103,11 @@ export const agentMissions = pgTable("agent_missions", {
   dueAt: timestamp("due_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
-}, (table) => [index("agent_missions_workspace_status_idx").on(table.workspaceId, table.status, table.updatedAt)]);
+}, (table) => [
+  index("agent_missions_workspace_status_idx").on(table.workspaceId, table.status, table.updatedAt),
+  index("agent_missions_workspace_retry_of_idx").on(table.workspaceId, table.retryOfMissionId, table.updatedAt),
+  uniqueIndex("agent_missions_active_retry_unique").on(table.workspaceId, table.retryOfMissionId).where(sql`"retry_of_mission_id" IS NOT NULL AND "status" NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')`),
+]);
 
 export const agentMissionTargets = pgTable("agent_mission_targets", {
   ...tenantColumns(),

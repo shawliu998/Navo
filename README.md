@@ -17,6 +17,20 @@ seller knowledge and ICP constraints, researches a bounded account website, pers
 source evidence, extracts evidence-linked signals, applies deterministic qualification rules,
 and saves an outreach message with `DRAFT` status.
 
+## Mission follow-through
+
+A completed Mission presents a persisted-data-only Completion Brief: qualification, the
+strongest findings, evidence links, risks and the DRAFT subject. `REVIEW` is explicitly a
+needs-review outcome, not a qualified account. Operators may edit an `OUTBOUND` `DRAFT`
+with a revision token; the first edit preserves the original subject/body and no edit sends
+mail or creates an Approval. The notification center surfaces durable Mission/task updates.
+
+Completion Brief actions can create one workspace-scoped manual follow-up task per Mission
+target. A FAILED Mock Mission can be retried only by creating a new linked Mission; the
+failed history remains intact and PostgreSQL allows only one non-terminal retry for an original
+Mission. Queue jobs still contain IDs only. The current Mission runner does not accumulate
+provider usage, so actual Mission cost is shown as **Not measured**; plan cost is an estimate.
+
 The MVP deliberately stops short of becoming a complete CRM, customer-support product, WebChat platform or unrestricted automated sender.
 
 ## Stack

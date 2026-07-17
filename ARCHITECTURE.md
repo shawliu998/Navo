@@ -31,6 +31,12 @@ The current Mission runner persists seller knowledge usage, website fetch events
 signals, qualification results, plan-step progress and the final `DRAFT` message. It does
 not create a sending Approval or send real email.
 
+Mission follow-through derives its Completion Brief only from those persisted records. A
+draft edit is workspace-scoped and requires the Mission's linked `OUTBOUND` `DRAFT` message
+plus its previous `updatedAt` revision; its first change preserves original subject/body and
+the audit record stores changed flags and lengths, never the edited body. The notification
+center reads durable Mission, task and approval state; it does not expose reasoning or keys.
+
 The reply intelligence flow is:
 
 ```text
@@ -95,9 +101,22 @@ as an explicit argument. Current demo routes pin the authenticated demo session 
 demo workspace rather than implementing general membership or role resolution. Cross-workspace
 references in the Mission and Knowledge paths are constrained by explicit workspace predicates.
 
+`agent_missions.retry_of_mission_id` records FAILED → new-Mission retry lineage. Retry
+creation locks the original FAILED Mission, copies its bounded Mock controls into a new empty
+Mission, writes relation events/audit records, and never resets old results or errors. A
+partial unique index on `(workspace_id, retry_of_mission_id)` permits one retry in every
+non-terminal state (anything except COMPLETED, FAILED and CANCELLED). The route then prepares and enqueues only the new Mission using an
+IDs-only payload; a queue failure marks only that new retry FAILED. Completion follow-up task
+creation conditionally claims `agent_mission_targets.task_id` inside its transaction, so
+concurrent clicks return the same task rather than duplicate work.
+
 ## Local infrastructure and delivery safety
 
 Docker Compose exposes PostgreSQL on `54322` and Redis on `56379` to avoid common local port collisions. Outbound email always uses an in-memory/database EmailSink in the MVP. Reply, bounce, unsubscribe and complaint endpoints simulate provider webhooks and exercise the full domain flow; they do not send real email or call a real mailbox provider.
+
+The Mock Mission runner currently does not persist measured provider usage or actual cost.
+Mission detail therefore renders actual cost as `Not measured`; plan estimates and configured
+cost limits remain separate operator controls.
 
 Sprint 0.2 also makes `navo` the internal workspace scope, Compose project, PostgreSQL
 database/user and development volume prefix. This rename intentionally does not mutate or

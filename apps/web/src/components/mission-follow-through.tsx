@@ -44,7 +44,7 @@ export function MissionCompletionBrief({ brief, missionId }: { brief: Completion
   return <section className="card" aria-label="Agent Completion Brief" style={{ borderColor: brief.state === "failed" ? "var(--danger)" : "var(--accent)", marginBottom: 18 }}>
     <div className="card-header"><div><span className="eyebrow">NAVO DELIVERY</span><h2>{title}</h2></div><span className={`badge ${brief.state === "completed" ? "badge-success" : brief.state === "failed" ? "badge-warning" : "badge-neutral"}`}>{brief.state.toUpperCase()}</span></div>
     <p className="summary-text">{brief.conclusion}</p>
-    {brief.state === "completed" && <div className="command-result-body"><div><span>Qualification</span><strong>{brief.qualified === null ? "Not available" : brief.qualified ? "Qualified" : "Not qualified"}{brief.score !== null ? ` · ${brief.score}/100` : ""}</strong></div>{brief.findings.length > 0 && <div><span>Key findings</span><strong>{brief.findings.join(" · ")}</strong></div>}<div><span>Evidence</span><strong>{brief.evidenceCount} persisted item{brief.evidenceCount === 1 ? "" : "s"}{brief.sourceUrls.length > 0 && <> · {brief.sourceUrls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" className="muted" style={{ marginRight: 7 }}>{sourceLabel(url)}</a>)}</>}</strong></div>{brief.risks.length > 0 && <div><span>Risks</span><strong>{brief.risks.join(" · ")}</strong></div>}{brief.draftSubject && <div><span>DRAFT subject</span><strong>{brief.draftSubject}</strong></div>}<div><span>Recommended next step</span><strong>{brief.recommendedNextStep}</strong></div></div>}
+    {brief.state === "completed" && <div className="command-result-body"><div><span>Qualification</span><strong>{brief.qualified === null ? "Not available" : brief.qualificationStatus === "REVIEW" ? "Needs review" : brief.qualified ? "Qualified" : "Not qualified"}{brief.score !== null ? ` · ${brief.score}/100` : ""}</strong></div>{brief.findings.length > 0 && <div><span>Key findings</span><strong>{brief.findings.join(" · ")}</strong></div>}<div><span>Evidence</span><strong>{brief.evidenceCount} persisted item{brief.evidenceCount === 1 ? "" : "s"}{brief.sourceUrls.length > 0 && <> · {brief.sourceUrls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" style={{ marginRight: 7 }}>{sourceLabel(url)}</a>)}</>}</strong></div>{brief.risks.length > 0 && <div><span>Risks</span><strong>{brief.risks.join(" · ")}</strong></div>}{brief.draftSubject && <div><span>DRAFT subject</span><strong>{brief.draftSubject}</strong></div>}<div><span>Recommended next step</span><strong>{brief.recommendedNextStep}</strong></div></div>}
     {brief.state !== "completed" && brief.risks.length > 0 && <div className="alert alert-warning">{brief.risks[0]}</div>}
     <div className="page-actions" style={{ marginTop: 14, flexWrap: "wrap" }}>
       {brief.accountId && <Link className="button button-secondary" href={`/app/missions/new?accountId=${encodeURIComponent(brief.accountId)}&objective=${encodeURIComponent(objective)}`}><RotateCcw size={14}/>Research again</Link>}
@@ -55,7 +55,7 @@ export function MissionCompletionBrief({ brief, missionId }: { brief: Completion
   </section>;
 }
 
-export function DraftMessageEditor({ missionId, message }: { missionId: string; message: { id: string; subject: string; body: string; originalSubject?: string | null; originalBody?: string | null; updatedAt: string } }) {
+export function DraftMessageEditor({ missionId, message }: { missionId: string; message: { id: string; subject: string; body: string; originalSubject?: string | null; originalBody?: string | null; updatedAt: string; revision: number } }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false); const [subject, setSubject] = useState(message.subject); const [body, setBody] = useState(message.body); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const comparison = getDraftComparison({ originalSubject: message.originalSubject, originalBody: message.originalBody, currentSubject: subject, currentBody: body });
@@ -66,7 +66,7 @@ export function DraftMessageEditor({ missionId, message }: { missionId: string; 
     if (body.trim().length > 4_000) return setError("Draft body must be 4,000 characters or fewer.");
     setBusy(true); setError("");
     try {
-      const response = await fetch(`/api/missions/${missionId}/draft`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ messageId: message.id, subject, body, revision: message.updatedAt }) });
+      const response = await fetch(`/api/missions/${missionId}/draft`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ messageId: message.id, subject, body, revision: message.revision }) });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(messageFrom(payload, "Could not save this DRAFT."));
       setEditing(false); router.refresh();

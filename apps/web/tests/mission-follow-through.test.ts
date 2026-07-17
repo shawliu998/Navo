@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveCompletionBrief } from "../src/lib/mission-completion-brief";
+import { missionActualCostLabel } from "../src/lib/mission-cost";
 import { canEditDraftMessage, draftMessagePatchSchema, matchesDraftRevision, preserveOriginalDraft } from "../src/lib/draft-message";
 import { followUpTaskDescription, followUpTaskTitle } from "../src/lib/mission-follow-through";
 
@@ -15,6 +16,13 @@ describe("completion brief", () => {
     expect(brief).toMatchObject({ state: "completed", qualified: true, score: 82, evidenceCount: 2, draftSubject: "A safer inspection workflow" });
     expect(brief.findings).toContain("Hiring automation engineers");
   });
+
+  it("marks REVIEW as needs review and never treats Mock zero as measured cost", () => {
+    const brief = deriveCompletionBrief({ status: "COMPLETED", error: null, result: {}, account: { id: "account-1", name: "Acme" }, evidence: [], signals: [], qualification: { score: 55, status: "REVIEW", risks: [] }, message: null });
+    expect(brief).toMatchObject({ qualified: false, qualificationStatus: "REVIEW" });
+    expect(brief.conclusion).toContain("needs review");
+    expect(missionActualCostLabel()).toBe("Not measured");
+  });
 });
 
 describe("draft and follow-up guards", () => {
@@ -23,8 +31,8 @@ describe("draft and follow-up guards", () => {
     expect(canEditDraftMessage({ direction: "OUTBOUND", status: "SENT" })).toBe(false);
     expect(draftMessagePatchSchema.safeParse({ subject: " ", body: "Body" }).success).toBe(false);
     expect(draftMessagePatchSchema.safeParse({ subject: "Subject", body: "x".repeat(4_001) }).success).toBe(false);
-    expect(matchesDraftRevision("2026-07-17T00:00:00.000Z", "2026-07-17T00:00:00.000Z")).toBe(true);
-    expect(matchesDraftRevision("2026-07-17T00:00:00.000Z", "2026-07-17T00:00:01.000Z")).toBe(false);
+    expect(matchesDraftRevision(1, 1)).toBe(true);
+    expect(matchesDraftRevision(1, 2)).toBe(false);
     expect(preserveOriginalDraft("Original", "Edited")).toBe("Original");
     expect(preserveOriginalDraft(null, "First draft")).toBe("First draft");
   });

@@ -18,11 +18,11 @@ production-ready for real email sending.
 
 1. **Foundation and brand — completed** — pnpm/Turborepo, Next.js web, worker, PostgreSQL, Redis, demo authentication, workspace isolation, Navo application shell and design tokens.
 2. **Knowledge and account intelligence — completed for the demo path** — seller knowledge editor/API, product knowledge, ICP, personas, approved claims, CSV mapping and deduplication, accounts, bounded website research, literal evidence, signals, inference, deterministic qualification and contacts.
-3. **Mission execution — completed for the single-account demo path** — Mission planning, BullMQ worker dispatch, IDs-only queue payloads, persisted plan steps/events, Mock/DeepSeek provider boundary, research validation and safe DRAFT generation.
+3. **Mission execution — completed for the single-account demo path** — Mission planning, BullMQ worker dispatch, IDs-only queue payloads, persisted plan steps/events, Mock/DeepSeek provider boundary, research validation, safe DRAFT generation and operator follow-through. Completion Briefs are persisted-data-only; DRAFT edits preserve the original revision; one manual follow-up task is idempotent per Mission target; and a FAILED Mock Mission creates a linked new retry with one non-terminal retry enforced in PostgreSQL.
 4. **Outbound orchestration — completed in the existing Play path; Mission handoff remains limited** — fixed node registry, React Flow Play Builder, graph validation, immutable play versions, message generation, policy checks and human approval.
 5. **Controlled engagement — partially completed** — suppression and idempotency policies, EmailSink simulation, deterministic run/node-run logs and retry behavior exist; real email delivery is intentionally unsupported.
 6. **Reply intelligence — completed for simulated events** — simulated reply, bounce, unsubscribe and complaint events; reply classification; conversation summaries; account memory; next best action; manual tasks; CRM Mirror events.
-7. **Observability and quality — partially completed** — analytics, audit trail and provider/token/cost/error visibility exist; broader API/component/accessibility/E2E coverage and production hardening remain unfinished.
+7. **Observability and quality — partially completed** — analytics, audit trail, notification center and provider/token/cost/error visibility exist; Mission actual cost remains unmeasured in the current Mock runner, and broader API/component/accessibility/E2E coverage and production hardening remain unfinished.
 
 ## Main deliverables
 
@@ -37,14 +37,14 @@ production-ready for real email sending.
 ## MVP acceptance scenarios
 
 1. Edit or seed seller Knowledge and ICP, create a Mission, select a bounded account target, research its website, persist literal Evidence and Signals, qualify it deterministically and save an outreach message as `DRAFT`.
-2. Review the saved draft in the workspace; the Mission runner creates no sending Approval, and any outbound behavior remains EmailSink simulation only and does not send real mail.
+2. Review the persisted Completion Brief and saved DRAFT in the workspace; edit only an OUTBOUND DRAFT with revision/original preservation, optionally create one manual follow-up task, or retry a FAILED Mock Mission as a linked new Mission. The Mission runner creates no sending Approval, and any outbound behavior remains EmailSink simulation only and does not send real mail.
 3. Simulate a reply, bounce, unsubscribe or complaint against an EmailSink message.
 4. For a reply, deterministically create or update the conversation, classification, summary, account memory, next action proposal, manual task, CRM Mirror event and analytics/audit records.
 5. Inspect Mission plan steps, events, Play versions, Runs and Node Runs without exposing secrets or unredacted sensitive inputs.
 
 ## Remaining work and explicit non-goals
 
-- Browser E2E coverage does not yet prove the complete Knowledge → Mission → Research → Evidence → Qualification → DRAFT execution loop; worker and workflow integration tests cover important persistence paths.
+- Browser E2E coverage does not yet prove the complete Knowledge → Mission → Research → Evidence → Qualification → DRAFT execution loop. DB integration coverage exercises draft revision/original preservation, follow-up idempotency and retry lineage/queue-failure handling; broader route, accessibility and E2E coverage remain unfinished.
 - Multi-account Mission scheduling, richer target selection, production observability, accessibility hardening and real integration adapters remain unfinished.
 - Real mailbox sending, unrestricted autonomous outreach, production deployment readiness and a complete CRM are outside this MVP.
 

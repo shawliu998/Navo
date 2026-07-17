@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 import { db } from "./client";
 import { accounts, agentEvents, agentMissionTargets, agentMissions, agentPlanSteps, agentPlans, agentPreferences, agentProfiles, approvals, approvedClaims, auditLogs, contacts, conversationSummaries, conversations, evidence, icpProfiles, inferences, integrationConnections, memoryFacts, messageClassifications, messageEvents, messages, nextActionProposals, nodeRuns, opportunityMirrors, personas, playVersions, plays, products, qualificationResults, runs, sequenceSteps, sequences, signals, tasks, workspaces } from "./schema";
 
@@ -227,6 +227,7 @@ export type CreateMissionInput = {
   };
   provider?: string;
   model?: string;
+  retryOfMissionId?: string;
 };
 
 export async function getAgentStatus(workspaceId: string) {
@@ -278,39 +279,75 @@ export async function getMission(workspaceId: string, missionId: string) {
   return { mission, targets, plan: plans[0] ?? null, steps, events, targetAccount, resultEvidence, resultSignals, resultQualification, resultMessage };
 }
 
+type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function createMissionInTransaction(tx: MissionTransaction, workspaceId: string, userId: string, input: CreateMissionInput) {
+  const requestedAccountIds = [...new Set([input.targetAccountId, ...(input.accountIds ?? [])].filter((value): value is string => Boolean(value)))];
+  const selectedAccounts = requestedAccountIds.length
+    ? await tx.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.workspaceId, workspaceId), inArray(accounts.id, requestedAccountIds.slice(0, 1))))
+    : await tx.select({ id: accounts.id }).from(accounts).where(eq(accounts.workspaceId, workspaceId)).orderBy(desc(accounts.fitScore)).limit(1);
+  if (!selectedAccounts[0]) throw new Error("MISSION_TARGET_ACCOUNT_REQUIRED: Select one target account before creating a mission.");
+  if (input.targetAccountId && selectedAccounts[0].id !== input.targetAccountId) throw new Error("MISSION_TARGET_ACCOUNT_NOT_FOUND: The selected account is outside this workspace or does not exist.");
+  const targetAccountId = selectedAccounts[0].id;
+  const targetCount = 1;
+  const initialStatus = input.status ?? "DRAFT";
+  const planSteps = input.plan?.steps ?? DEFAULT_MISSION_STEPS.map((title, index) => ({ id: `legacy-${index + 1}`, type: ["LOAD_KNOWLEDGE", "LOAD_ACCOUNT", "RESEARCH_WEBSITE", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "GENERATE_OUTREACH"][Math.min(index, 5)]!, title, description: "Legacy deterministic mission step." }));
+  const [mission] = await tx.insert(agentMissions).values({
+    workspaceId, createdBy: userId, name: input.name, type: input.type ?? "TARGET_ACCOUNT_DISCOVERY", objective: input.objective,
+    desiredOutcome: input.desiredOutcome, status: initialStatus, operatingMode: input.operatingMode ?? "APPROVAL_CONTROLLED",
+    playId: input.playId, inputSource: input.inputSource ?? "DEMO_ACCOUNTS", approvalPolicy: input.approvalPolicy ?? "REQUIRED_FOR_OUTBOUND",
+    targetCount, maximumAccounts: input.maximumAccounts ?? targetCount, estimatedCostLimit: input.estimatedCostLimit?.toFixed(2),
+    testMode: input.testMode ?? true, dueAt: input.dueAt, targetCriteria: input.targetCriteria ?? {}, stopConditions: input.stopConditions ?? [],
+    plan: input.plan ?? {}, result: {}, error: null, retryOfMissionId: input.retryOfMissionId ?? null, targetAccountId, provider: input.provider, model: input.model,
+    currentStep: initialStatus === "ACTIVE" || initialStatus === "RUNNING" ? planSteps[0]?.title : "Plan ready for review", progress: 0,
+    startedAt: initialStatus === "ACTIVE" || initialStatus === "RUNNING" ? new Date() : null, agentSummary: input.plan ? "Navo generated a schema-validated AI mission plan." : "Navo prepared a deterministic legacy execution plan.",
+  }).returning();
+  if (!mission) throw new Error("Mission insert did not return a row");
+  const [plan] = await tx.insert(agentPlans).values({ workspaceId, createdBy: userId, missionId: mission.id, title: `${mission.name} plan`, status: initialStatus === "DRAFT" ? "DRAFT" : "ACTIVE", estimatedDurationMinutes: 90, estimatedCost: "0.04000", summary: "Evidence-backed research and controlled outbound plan." }).returning();
+  if (!plan) throw new Error("Plan insert did not return a row");
+  await tx.insert(agentPlanSteps).values(planSteps.map((step, index) => ({ workspaceId, createdBy: userId, missionId: mission.id, planId: plan.id, order: index + 1, title: step.title, description: step.description, status: (initialStatus === "ACTIVE" || initialStatus === "RUNNING") && index === 0 ? "RUNNING" : "PENDING", relatedPlayNodeId: step.type, input: { testMode: input.testMode ?? true, planStepId: step.id }, output: {} })));
+  await tx.insert(agentMissionTargets).values({ workspaceId, createdBy: userId, missionId: mission.id, accountId: targetAccountId, priority: "HIGH", whySelected: "Selected as the single account for this mission run.", currentStep: "Plan ready for review", status: "PENDING" });
+  await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId: mission.id, type: initialStatus === "ACTIVE" ? "MISSION_STARTED" : "MISSION_CREATED", title: initialStatus === "ACTIVE" ? "Navo started the mission." : "Navo prepared a mission draft.", severity: "SUCCESS", occurredAt: new Date(), metadata: { source: input.provider ?? "deterministic-legacy", targetCount } });
+  return mission;
+}
+
 export async function createMission(workspaceId: string, userId: string, input: CreateMissionInput) {
+  return db.transaction((tx) => createMissionInTransaction(tx, workspaceId, userId, input));
+}
+
+const TERMINAL_MISSION_STATUSES = ["COMPLETED", "FAILED", "CANCELLED"];
+
+/** Creates or returns the one non-terminal retry linked to a FAILED Mission. */
+export async function createMissionRetry(workspaceId: string, userId: string, missionId: string) {
   return db.transaction(async (tx) => {
-    const requestedAccountIds = [...new Set([input.targetAccountId, ...(input.accountIds ?? [])].filter((value): value is string => Boolean(value)))];
-    const selectedAccounts = requestedAccountIds.length
-      ? await tx.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.workspaceId, workspaceId), inArray(accounts.id, requestedAccountIds.slice(0, 1))))
-      : await tx.select({ id: accounts.id }).from(accounts).where(eq(accounts.workspaceId, workspaceId)).orderBy(desc(accounts.fitScore)).limit(1);
-    if (!selectedAccounts[0]) throw new Error("MISSION_TARGET_ACCOUNT_REQUIRED: Select one target account before creating a mission.");
-    if (input.targetAccountId && selectedAccounts[0].id !== input.targetAccountId) throw new Error("MISSION_TARGET_ACCOUNT_NOT_FOUND: The selected account is outside this workspace or does not exist.");
-    const targetAccountId = selectedAccounts[0].id;
-    const targetCount = 1;
-    const initialStatus = input.status ?? "DRAFT";
-    const planSteps = input.plan?.steps ?? DEFAULT_MISSION_STEPS.map((title, index) => ({ id: `legacy-${index + 1}`, type: ["LOAD_KNOWLEDGE", "LOAD_ACCOUNT", "RESEARCH_WEBSITE", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "GENERATE_OUTREACH"][Math.min(index, 5)]!, title, description: "Legacy deterministic mission step." }));
-    const [mission] = await tx.insert(agentMissions).values({
-      workspaceId, createdBy: userId, name: input.name, type: input.type ?? "TARGET_ACCOUNT_DISCOVERY", objective: input.objective,
-      desiredOutcome: input.desiredOutcome, status: initialStatus, operatingMode: input.operatingMode ?? "APPROVAL_CONTROLLED",
-      playId: input.playId, inputSource: input.inputSource ?? "DEMO_ACCOUNTS", approvalPolicy: input.approvalPolicy ?? "REQUIRED_FOR_OUTBOUND",
-      targetCount, maximumAccounts: input.maximumAccounts ?? targetCount, estimatedCostLimit: input.estimatedCostLimit?.toFixed(2),
-      testMode: input.testMode ?? true, dueAt: input.dueAt, targetCriteria: input.targetCriteria ?? {}, stopConditions: input.stopConditions ?? [],
-      plan: input.plan ?? {}, result: {}, error: null, targetAccountId, provider: input.provider, model: input.model,
-      currentStep: initialStatus === "ACTIVE" || initialStatus === "RUNNING" ? planSteps[0]?.title : "Plan ready for review", progress: 0,
-      startedAt: initialStatus === "ACTIVE" || initialStatus === "RUNNING" ? new Date() : null, agentSummary: input.plan ? "Navo generated a schema-validated AI mission plan." : "Navo prepared a deterministic legacy execution plan.",
-    }).returning();
-    if (!mission) throw new Error("Mission insert did not return a row");
-    const [plan] = await tx.insert(agentPlans).values({ workspaceId, createdBy: userId, missionId: mission.id, title: `${mission.name} plan`, status: initialStatus === "DRAFT" ? "DRAFT" : "ACTIVE", estimatedDurationMinutes: 90, estimatedCost: "0.04000", summary: "Evidence-backed research and controlled outbound plan." }).returning();
-    if (!plan) throw new Error("Plan insert did not return a row");
-    await tx.insert(agentPlanSteps).values(planSteps.map((step, index) => ({ workspaceId, createdBy: userId, missionId: mission.id, planId: plan.id, order: index + 1, title: step.title, description: step.description, status: (initialStatus === "ACTIVE" || initialStatus === "RUNNING") && index === 0 ? "RUNNING" : "PENDING", relatedPlayNodeId: step.type, input: { testMode: input.testMode ?? true, planStepId: step.id }, output: {} })));
-    await tx.insert(agentMissionTargets).values({ workspaceId, createdBy: userId, missionId: mission.id, accountId: targetAccountId, priority: "HIGH", whySelected: "Selected as the single account for this mission run.", currentStep: "Plan ready for review", status: "PENDING" });
-    await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId: mission.id, type: initialStatus === "ACTIVE" ? "MISSION_STARTED" : "MISSION_CREATED", title: initialStatus === "ACTIVE" ? "Navo started the mission." : "Navo prepared a mission draft.", severity: "SUCCESS", occurredAt: new Date(), metadata: { source: input.provider ?? "deterministic-legacy", targetCount } });
-    return mission;
+    const [original] = await tx.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.id, missionId))).for("update").limit(1);
+    if (!original) return { kind: "NOT_FOUND" as const };
+    if (original.status !== "FAILED") return { kind: "NOT_RETRYABLE" as const, status: original.status };
+    if (original.provider !== "mock-ai" || original.model !== "deterministic-v1") return { kind: "PROVIDER_UNSUPPORTED" as const };
+    const plan = original.plan as CreateMissionInput["plan"];
+    if (!plan || !Array.isArray(plan.steps) || !original.targetAccountId) return { kind: "PLAN_UNAVAILABLE" as const };
+    const [existing] = await tx.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.retryOfMissionId, missionId), notInArray(agentMissions.status, TERMINAL_MISSION_STATUSES))).orderBy(desc(agentMissions.updatedAt)).limit(1);
+    if (existing) return { kind: "EXISTS" as const, mission: existing };
+    const retry = await createMissionInTransaction(tx, workspaceId, userId, {
+      name: `${original.name} (Retry)`.slice(0, 160), type: original.type, objective: original.objective,
+      desiredOutcome: original.desiredOutcome ?? undefined, operatingMode: original.operatingMode as CreateMissionInput["operatingMode"],
+      playId: original.playId ?? undefined, inputSource: original.inputSource, approvalPolicy: original.approvalPolicy,
+      targetAccountId: original.targetAccountId, targetCount: 1, maximumAccounts: original.maximumAccounts ?? 1,
+      estimatedCostLimit: original.estimatedCostLimit === null ? undefined : Number(original.estimatedCostLimit),
+      testMode: original.testMode, dueAt: original.dueAt ?? undefined, targetCriteria: original.targetCriteria as Record<string, unknown>, stopConditions: original.stopConditions as unknown[],
+      status: "READY", plan, provider: "mock-ai", model: "deterministic-v1", retryOfMissionId: original.id,
+    });
+    const now = new Date();
+    await tx.insert(agentEvents).values([
+      { workspaceId, createdBy: userId, missionId: retry.id, accountId: retry.targetAccountId, type: "MISSION_RETRIED", title: "Retry mission created from failed history.", severity: "INFO", occurredAt: now, metadata: { retryOfMissionId: original.id, noSend: true } },
+      { workspaceId, createdBy: userId, missionId: original.id, accountId: original.targetAccountId, type: "MISSION_RETRY_CREATED", title: "A new retry mission was created; this failed history was preserved.", severity: "INFO", occurredAt: now, metadata: { retryMissionId: retry.id, noSend: true } },
+    ]);
+    await tx.insert(auditLogs).values({ workspaceId, createdBy: userId, actorId: userId, action: "MISSION_RETRY_CREATED", resourceType: "MISSION", resourceId: retry.id, summary: "Created a new Mock retry Mission; the original failed Mission was preserved.", metadata: { retryOfMissionId: original.id, noSend: true } });
+    return { kind: "CREATED" as const, mission: retry };
   });
 }
 
-export async function updateMissionDraftMessage(workspaceId: string, userId: string, missionId: string, messageId: string, patch: { subject: string; body: string; revision: string }) {
+export async function updateMissionDraftMessage(workspaceId: string, userId: string, missionId: string, messageId: string, patch: { subject: string; body: string; revision: number }) {
   return db.transaction(async (tx) => {
     const [mission] = await tx.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.id, missionId))).limit(1);
     if (!mission) return { kind: "MISSION_NOT_FOUND" as const };
@@ -320,7 +357,7 @@ export async function updateMissionDraftMessage(workspaceId: string, userId: str
     const [message] = await tx.select().from(messages).where(and(eq(messages.workspaceId, workspaceId), eq(messages.id, messageId))).limit(1);
     if (!message) return { kind: "NOT_FOUND" as const };
     if (message.direction !== "OUTBOUND" || message.status !== "DRAFT") return { kind: "NOT_EDITABLE" as const };
-    const currentRevision = message.updatedAt.toISOString();
+    const currentRevision = message.revision;
     if (patch.revision !== currentRevision) return { kind: "CONFLICT" as const, revision: currentRevision };
     const firstEdit = message.originalSubject === null || message.originalBody === null;
     const [updated] = await tx.update(messages).set({
@@ -329,13 +366,14 @@ export async function updateMissionDraftMessage(workspaceId: string, userId: str
       originalSubject: message.originalSubject ?? message.subject,
       originalBody: message.originalBody ?? message.body,
       updatedAt: new Date(),
-    }).where(and(eq(messages.workspaceId, workspaceId), eq(messages.id, messageId), eq(messages.status, "DRAFT"), eq(messages.updatedAt, message.updatedAt))).returning();
+      revision: sql`${messages.revision} + 1`,
+    }).where(and(eq(messages.workspaceId, workspaceId), eq(messages.id, messageId), eq(messages.direction, "OUTBOUND"), eq(messages.status, "DRAFT"), eq(messages.revision, patch.revision))).returning();
     if (!updated) return { kind: "CONFLICT" as const, revision: currentRevision };
     await tx.insert(auditLogs).values({
       workspaceId, createdBy: userId, actorId: userId, action: "DRAFT_MESSAGE_EDITED", resourceType: "MISSION", resourceId: missionId,
       summary: "A DRAFT outreach message was edited; no email was sent.", metadata: { messageId, firstEdit, subjectChanged: message.subject !== patch.subject, bodyChanged: message.body !== patch.body, subjectLength: patch.subject.length, bodyLength: patch.body.length, previousRevision: currentRevision, noSend: true },
     });
-    return { kind: "OK" as const, message: updated, firstEdit, revision: updated.updatedAt.toISOString() };
+    return { kind: "OK" as const, message: updated, firstEdit, revision: updated.revision };
   });
 }
 

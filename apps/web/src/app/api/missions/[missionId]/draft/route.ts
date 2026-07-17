@@ -5,7 +5,7 @@ import { draftMessagePatchSchema } from "@/lib/draft-message";
 import { DEMO_USER_ID } from "../../_shared";
 import { z } from "zod";
 
-const inputSchema = draftMessagePatchSchema.extend({ messageId: z.string().uuid(), revision: z.string().datetime() });
+const inputSchema = draftMessagePatchSchema.extend({ messageId: z.string().uuid(), revision: z.number().int().positive() });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ missionId: string }> }) {
   if (!await requireDemoSession()) return apiError("UNAUTHENTICATED", "Login required.", 401);

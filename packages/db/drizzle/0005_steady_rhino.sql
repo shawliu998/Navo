@@ -1,0 +1,3 @@
+ALTER TABLE "agent_missions" ADD COLUMN "retry_of_mission_id" uuid;--> statement-breakpoint
+CREATE INDEX "agent_missions_workspace_retry_of_idx" ON "agent_missions" USING btree ("workspace_id","retry_of_mission_id","updated_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "agent_missions_active_retry_unique" ON "agent_missions" USING btree ("workspace_id","retry_of_mission_id") WHERE "retry_of_mission_id" IS NOT NULL AND "status" IN ('DRAFT', 'PLANNING', 'READY', 'QUEUED', 'ACTIVE', 'RUNNING', 'WAITING', 'PAUSED');
