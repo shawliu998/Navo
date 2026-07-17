@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "./client";
-import { accounts, agentEvents, agentMissionTargets, agentMissions, agentPlanSteps, agentPlans, agentPreferences, agentProfiles, approvals, approvedClaims, auditLogs, contacts, conversationSummaries, conversations, evidence, icpProfiles, inferences, integrationConnections, memoryFacts, messageClassifications, messageEvents, messages, nextActionProposals, nodeRuns, opportunityMirrors, personas, playVersions, plays, products, qualificationResults, runs, sequenceSteps, sequences, signals, tasks } from "./schema";
+import { accounts, agentEvents, agentMissionTargets, agentMissions, agentPlanSteps, agentPlans, agentPreferences, agentProfiles, approvals, approvedClaims, auditLogs, contacts, conversationSummaries, conversations, evidence, icpProfiles, inferences, integrationConnections, memoryFacts, messageClassifications, messageEvents, messages, nextActionProposals, nodeRuns, opportunityMirrors, personas, playVersions, plays, products, qualificationResults, runs, sequenceSteps, sequences, signals, tasks, workspaces } from "./schema";
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -100,6 +100,86 @@ export async function getRun(workspaceId: string, runId: string) { const [result
 export const getSignals = (workspaceId: string) => db.select({ signal: signals, accountName: accounts.name }).from(signals).innerJoin(accounts, and(eq(accounts.workspaceId, workspaceId), eq(accounts.id, signals.accountId))).where(eq(signals.workspaceId, workspaceId)).orderBy(desc(signals.detectedAt));
 export const getContacts = (workspaceId: string) => db.select({ contact: contacts, accountName: accounts.name }).from(contacts).innerJoin(accounts, and(eq(accounts.workspaceId, workspaceId), eq(accounts.id, contacts.accountId))).where(eq(contacts.workspaceId, workspaceId)).orderBy(asc(contacts.name));
 export const getKnowledge = async (workspaceId: string) => ({ products: await db.select().from(products).where(eq(products.workspaceId, workspaceId)), claims: await db.select().from(approvedClaims).where(eq(approvedClaims.workspaceId, workspaceId)), personas: await db.select().from(personas).where(eq(personas.workspaceId, workspaceId)) });
+
+export type KnowledgeClaimInput = { id?: string; claim: string; evidence?: string; allowedRegions: string[] };
+export type KnowledgeBaseInput = {
+  company: { name: string; website?: string; descriptionZh?: string; descriptionEn?: string };
+  product: { nameZh: string; nameEn: string; category?: string; descriptionZh?: string; descriptionEn?: string; capabilities: string[]; prohibitedClaims: string[] };
+  icp: { name: string; industries: string[]; countries: string[] };
+  claims: KnowledgeClaimInput[];
+};
+
+type WorkspaceRow = typeof workspaces.$inferSelect;
+type ProductRow = typeof products.$inferSelect;
+type IcpRow = typeof icpProfiles.$inferSelect;
+type ClaimRow = typeof approvedClaims.$inferSelect;
+
+const emptyToNull = (value?: string) => { const trimmed = value?.trim(); return trimmed ? trimmed : null; };
+export const normalizeList = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+
+/** Pure save mapping: validated API input -> normalized row values. */
+export function buildKnowledgeWrites(input: KnowledgeBaseInput) {
+  return {
+    workspace: { name: input.company.name.trim(), website: emptyToNull(input.company.website), descriptionZh: emptyToNull(input.company.descriptionZh), descriptionEn: emptyToNull(input.company.descriptionEn) },
+    product: { nameZh: input.product.nameZh.trim(), nameEn: input.product.nameEn.trim(), category: emptyToNull(input.product.category), descriptionZh: emptyToNull(input.product.descriptionZh), descriptionEn: emptyToNull(input.product.descriptionEn), capabilities: normalizeList(input.product.capabilities), prohibitedClaims: normalizeList(input.product.prohibitedClaims) },
+    icp: { name: input.icp.name.trim(), industries: normalizeList(input.icp.industries), countries: normalizeList(input.icp.countries) },
+    claims: input.claims.map((claim) => ({ id: claim.id, claim: claim.claim.trim(), evidence: emptyToNull(claim.evidence), allowedRegions: normalizeList(claim.allowedRegions) })),
+  };
+}
+
+/** Pure read mapping: workspace/product/ICP/claim rows -> API payload. */
+export function mapKnowledgeBase({ workspace, product, icpProfile, claims }: { workspace: WorkspaceRow | null; product: ProductRow | null; icpProfile: IcpRow | null; claims: ClaimRow[] }) {
+  return {
+    company: workspace ? { name: workspace.name, website: workspace.website ?? "", descriptionZh: workspace.descriptionZh ?? "", descriptionEn: workspace.descriptionEn ?? "" } : null,
+    product: product ? { id: product.id, nameZh: product.nameZh, nameEn: product.nameEn, category: product.category ?? "", descriptionZh: product.descriptionZh ?? "", descriptionEn: product.descriptionEn ?? "", capabilities: product.capabilities as string[], prohibitedClaims: product.prohibitedClaims as string[] } : null,
+    icp: icpProfile ? { id: icpProfile.id, name: icpProfile.name, industries: icpProfile.industries as string[], countries: icpProfile.countries as string[] } : null,
+    claims: claims.map((claim) => ({ id: claim.id, claim: claim.claim, evidence: claim.evidence ?? "", allowedRegions: claim.allowedRegions as string[] })),
+  };
+}
+
+export async function getKnowledgeBase(workspaceId: string) {
+  const [[workspace], [product], [icpProfile], claims] = await Promise.all([
+    db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1),
+    db.select().from(products).where(and(eq(products.workspaceId, workspaceId), eq(products.status, "ACTIVE"))).orderBy(asc(products.createdAt)).limit(1),
+    db.select().from(icpProfiles).where(eq(icpProfiles.workspaceId, workspaceId)).orderBy(asc(icpProfiles.createdAt)).limit(1),
+    db.select().from(approvedClaims).where(and(eq(approvedClaims.workspaceId, workspaceId), eq(approvedClaims.status, "APPROVED"))).orderBy(asc(approvedClaims.createdAt)),
+  ]);
+  return mapKnowledgeBase({ workspace: workspace ?? null, product: product ?? null, icpProfile: icpProfile ?? null, claims });
+}
+
+export async function saveKnowledgeBase(workspaceId: string, userId: string, input: KnowledgeBaseInput) {
+  const writes = buildKnowledgeWrites(input);
+  await db.transaction(async (tx) => {
+    const changedAt = new Date();
+    await tx.update(workspaces).set({ ...writes.workspace, updatedAt: changedAt }).where(eq(workspaces.id, workspaceId));
+
+    const [existingProduct] = await tx.select({ id: products.id }).from(products).where(and(eq(products.workspaceId, workspaceId), eq(products.status, "ACTIVE"))).orderBy(asc(products.createdAt)).limit(1);
+    let productId = existingProduct?.id as string | undefined;
+    if (productId) await tx.update(products).set({ ...writes.product, updatedAt: changedAt }).where(and(eq(products.workspaceId, workspaceId), eq(products.id, productId)));
+    else {
+      const [inserted] = await tx.insert(products).values({ workspaceId, createdBy: userId, ...writes.product }).returning({ id: products.id });
+      if (!inserted) throw new Error("Product insert did not return a row");
+      productId = inserted.id;
+    }
+
+    const [existingIcp] = await tx.select({ id: icpProfiles.id }).from(icpProfiles).where(eq(icpProfiles.workspaceId, workspaceId)).orderBy(asc(icpProfiles.createdAt)).limit(1);
+    if (existingIcp) await tx.update(icpProfiles).set({ ...writes.icp, updatedAt: changedAt }).where(and(eq(icpProfiles.workspaceId, workspaceId), eq(icpProfiles.id, existingIcp.id)));
+    else await tx.insert(icpProfiles).values({ workspaceId, createdBy: userId, ...writes.icp });
+
+    const existingClaims = await tx.select({ id: approvedClaims.id }).from(approvedClaims).where(and(eq(approvedClaims.workspaceId, workspaceId), eq(approvedClaims.status, "APPROVED")));
+    const existingIds = new Set(existingClaims.map((claim) => claim.id));
+    const keptIds = new Set(writes.claims.map((claim) => claim.id).filter((id): id is string => Boolean(id)));
+    const staleIds = existingClaims.map((claim) => claim.id).filter((claimId) => !keptIds.has(claimId));
+    if (staleIds.length) await tx.update(approvedClaims).set({ status: "REVOKED", updatedAt: changedAt }).where(and(eq(approvedClaims.workspaceId, workspaceId), inArray(approvedClaims.id, staleIds)));
+    for (const claim of writes.claims) {
+      if (claim.id && existingIds.has(claim.id)) await tx.update(approvedClaims).set({ claim: claim.claim, evidence: claim.evidence, allowedRegions: claim.allowedRegions, productId, updatedAt: changedAt }).where(and(eq(approvedClaims.workspaceId, workspaceId), eq(approvedClaims.id, claim.id)));
+      else await tx.insert(approvedClaims).values({ workspaceId, createdBy: userId, productId, claim: claim.claim, evidence: claim.evidence, approvedBy: userId, approvedAt: changedAt, allowedRegions: claim.allowedRegions });
+    }
+
+    await tx.insert(auditLogs).values({ workspaceId, createdBy: userId, actorId: userId, action: "KNOWLEDGE_UPDATED", resourceType: "WORKSPACE", resourceId: workspaceId, summary: "Company, product, ICP and approved claims updated from the Knowledge page.", metadata: { claims: writes.claims.length } });
+  });
+  return getKnowledgeBase(workspaceId);
+}
 export const getIntegrations = (workspaceId: string) => db.select().from(integrationConnections).where(eq(integrationConnections.workspaceId, workspaceId)).orderBy(asc(integrationConnections.category), asc(integrationConnections.provider));
 
 export const DEFAULT_MISSION_STEPS = [

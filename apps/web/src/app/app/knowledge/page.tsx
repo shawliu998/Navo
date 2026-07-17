@@ -1,12 +1,13 @@
 import { AlertTriangle, CheckCircle2, Database, Package, ShieldCheck, Target, UserRound } from "lucide-react";
-import { DEMO_WORKSPACE_ID, getAgentMemory, getKnowledge } from "@navo/db/queries";
+import { DEMO_WORKSPACE_ID, getAgentMemory, getKnowledge, getKnowledgeBase } from "@navo/db/queries";
 import { Badge, MetricCard, PageHeader, StatusBadge } from "@navo/ui";
+import { KnowledgeEditor } from "@/components/knowledge-editor";
 
 export const metadata = { title: "Knowledge" };
 const renderedAt = Date.now();
 
 export default async function KnowledgePage() {
-  const [data, memoryContext] = await Promise.all([getKnowledge(DEMO_WORKSPACE_ID), getAgentMemory(DEMO_WORKSPACE_ID)]);
+  const [data, memoryContext, knowledgeBase] = await Promise.all([getKnowledge(DEMO_WORKSPACE_ID), getAgentMemory(DEMO_WORKSPACE_ID), getKnowledgeBase(DEMO_WORKSPACE_ID)]);
   const activeProducts = data.products.filter((product) => product.status === "ACTIVE");
   const approvedClaims = data.claims.filter((claim) => claim.status === "APPROVED");
   const expiredClaims = approvedClaims.filter((claim) => claim.expiresAt && claim.expiresAt.getTime() < renderedAt);
@@ -47,5 +48,6 @@ export default async function KnowledgePage() {
         <section className="card"><div className="card-header"><h2>Personas</h2><UserRound size={16} className="muted"/></div>{data.personas.map((persona) => <div className="guardrail-item" key={persona.id}><strong>{persona.name}</strong><small>{persona.department} · {persona.decisionRole}</small><p className="muted">CTA: {persona.recommendedCta ?? "Not defined"}</p></div>)}</section>
       </aside>
     </section>
+    <KnowledgeEditor initial={knowledgeBase}/>
   </div>;
 }
