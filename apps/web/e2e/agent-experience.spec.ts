@@ -16,8 +16,22 @@ test.describe.serial("Navo Agent Experience Sprint 0.3", () => {
     await expect(page).toHaveURL(/\/app\/overview/);
   });
 
-  test("Command Center explains current work and global Agent drawer controls Navo", async ({ page }) => {
+  test("Command Center creates a reviewable single-account draft and global Agent drawer controls Navo", async ({ page }) => {
     await expect(page.getByText(/Current mission|Today.?s plan|Needs your attention/i).first()).toBeVisible();
+    await page.getByLabel("Target account").selectOption(ids.account);
+    await expect(page.getByText(/https:\/\//).first()).toBeVisible();
+    await page.getByRole("button", { name: "Research website" }).click();
+    const previewResponse = page.waitForResponse((response) => response.url().endsWith("/api/agent/commands/preview") && response.request().method() === "POST");
+    await page.getByRole("button", { name: "Preview plan" }).click();
+    const preview = await (await previewResponse).json() as { data: { plan: unknown } };
+    await expect(page.getByText("Schema-validated MissionPlan")).toBeVisible();
+    await expect(page.getByText("DRAFT ONLY", { exact: true })).toBeVisible();
+    const createdResponse = page.waitForResponse((response) => response.url().endsWith("/api/agent/commands/create-mission") && response.request().method() === "POST");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    const created = await (await createdResponse).json() as { missionId: string };
+    await expect(page).toHaveURL(new RegExp(`/app/missions/${created.missionId}`));
+    const saved = await page.evaluate(async (missionId) => (await fetch(`/api/missions/${missionId}`)).json(), created.missionId) as { data: { mission: { plan: unknown } } };
+    expect(saved.data.mission.plan).toEqual(preview.data.plan);
     await page.screenshot({ path: path.join(shots, "command-center.png"), fullPage: true });
     await page.getByRole("button", { name: /Navo is/i }).first().click();
     await expect(page.getByRole("dialog", { name: /Navo/i })).toBeVisible();
@@ -64,7 +78,7 @@ test.describe.serial("Navo Agent Experience Sprint 0.3", () => {
     await expect(page.getByText("Load Nova Automation product knowledge")).toBeVisible();
     await page.getByRole("link", { name: "Activity", exact: true }).click();
     await expect(page.getByText(/durable timeline/i)).toBeVisible();
-    await page.getByRole("button", { name: "Pause" }).click();
+    await page.getByRole("button", { name: "Pause", exact: true }).click();
     await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
     await page.getByRole("button", { name: "Resume" }).click();
   });
@@ -74,9 +88,16 @@ test.describe.serial("Navo Agent Experience Sprint 0.3", () => {
     await expect(page.getByText("Agent Priority")).toBeVisible();
     await page.goto(`/app/accounts/${ids.account}`);
     await expect(page.getByText("What Navo thinks")).toBeVisible();
-    await page.getByRole("button", { name: /Ask Navo about this account/ }).click();
-    await expect(page.getByRole("status")).toBeVisible();
-    await page.screenshot({ path: path.join(shots, "account-agent-assessment.png"), fullPage: true });
+    await page.getByRole("link", { name: /Ask Navo about this account/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/app/missions/new\\?accountId=${ids.account}`));
+  });
+
+  test("Command menu routes natural-language work to the account-aware mission wizard", async ({ page }) => {
+    await page.getByRole("button", { name: "Open Navo command menu" }).click();
+    const menu = page.getByRole("dialog", { name: "Navo command menu" });
+    await menu.getByPlaceholder("Ask Navo to research, explain").fill("Research this account and prepare an evidence-backed draft.");
+    await menu.getByPlaceholder("Ask Navo to research, explain").press("Enter");
+    await expect(page).toHaveURL(/\/app\/missions\/new\?objective=/);
   });
 
   test("Human approval and Agent Activity explain recommendations and execution", async ({ page }) => {

@@ -1,9 +1,12 @@
 import { getAIProvider } from "@navo/agents";
-import { createMission, DEMO_WORKSPACE_ID, failMissionQueue, getMissions, prepareMissionStart } from "@navo/db/queries";
+import { accounts, createMission, db, DEMO_WORKSPACE_ID, failMissionQueue, getMissions, prepareMissionStart } from "@navo/db";
+import { and, eq } from "drizzle-orm";
 import { planMission } from "@navo/workflows/mission-planner";
 import { NextResponse } from "next/server";
 import { apiError, requireDemoSession } from "@/lib/api";
 import { enqueueMission } from "@/lib/mission-queue";
+import { guardMissionAccount } from "@/lib/mission-command";
+import { mockMissionPreviewSchema } from "@/lib/mission-preview";
 import { DEMO_USER_ID, missionInputSchema } from "./_shared";
 
 export async function GET() {
@@ -17,11 +20,20 @@ export async function POST(request: Request) {
   const parsed = missionInputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return apiError("INVALID_MISSION", "Mission input is invalid.", 422, parsed.error.flatten());
   try {
+    const [account] = parsed.data.targetAccountId
+      ? await db.select({ id: accounts.id, workspaceId: accounts.workspaceId, website: accounts.website, domain: accounts.domain }).from(accounts).where(and(eq(accounts.workspaceId, DEMO_WORKSPACE_ID), eq(accounts.id, parsed.data.targetAccountId))).limit(1)
+      : [];
+    const accountGuard = guardMissionAccount({ accountIds: parsed.data.targetAccountId ? [parsed.data.targetAccountId] : [], workspaceId: DEMO_WORKSPACE_ID, account: account ?? null });
+    if (!accountGuard.ok) return apiError(accountGuard.code, accountGuard.message, 422);
+    const preview = parsed.data.plan
+      ? mockMissionPreviewSchema.safeParse({ plan: parsed.data.plan, provider: parsed.data.provider, model: parsed.data.model })
+      : null;
+    if (preview && !preview.success) return apiError("INVALID_MISSION_PREVIEW", "Mission preview must be the schema-validated Mock plan shown to the operator.", 422, preview.error.flatten());
     const generated = parsed.data.plan
-      ? { data: parsed.data.plan, provider: parsed.data.provider ?? "preview", model: parsed.data.model ?? "preview" }
+      ? { data: preview!.data.plan, provider: preview!.data.provider, model: preview!.data.model }
       : await planMission(getAIProvider(), { name: parsed.data.name, objective: parsed.data.objective, targetDescription: "The single selected account in the demo workspace." });
     const shouldStart = parsed.data.status === "ACTIVE" || parsed.data.status === "RUNNING";
-    const mission = await createMission(DEMO_WORKSPACE_ID, DEMO_USER_ID, { ...parsed.data, status: shouldStart ? "READY" : parsed.data.status, targetCount: 1, maximumAccounts: 1, plan: generated.data, provider: generated.provider, model: generated.model, dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : undefined });
+    const mission = await createMission(DEMO_WORKSPACE_ID, DEMO_USER_ID, { ...parsed.data, targetAccountId: accountGuard.accountId, status: shouldStart ? "READY" : parsed.data.status, targetCount: 1, maximumAccounts: 1, plan: generated.data, provider: generated.provider, model: generated.model, dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : undefined });
     let responseMission = mission;
     if (shouldStart) {
       const started = await prepareMissionStart(DEMO_WORKSPACE_ID, DEMO_USER_ID, mission.id);

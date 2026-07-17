@@ -1,18 +1,19 @@
-import { getAIProvider } from "@navo/agents";
-import { createMission, DEMO_WORKSPACE_ID, failMissionQueue, getPlays, prepareMissionStart } from "@navo/db/queries";
-import { planMission } from "@navo/workflows/mission-planner";
+import { accounts, createMission, db, DEMO_WORKSPACE_ID, failMissionQueue, getPlays, prepareMissionStart } from "@navo/db";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiError, requireDemoSession } from "@/lib/api";
 import { enqueueMission } from "@/lib/mission-queue";
 import { DEMO_USER_ID, missionPlanProposal } from "../../../missions/_shared";
+import { guardMissionAccount } from "@/lib/mission-command";
+import { mockMissionPreviewSchema } from "@/lib/mission-preview";
 
 const inputSchema = z.object({
   command: z.string().trim().min(8).max(2_000),
   name: z.string().trim().min(3).max(160).optional(),
   status: z.enum(["DRAFT", "ACTIVE"]).default("DRAFT"),
   accountIds: z.array(z.string().uuid()).max(100).optional(),
-  targetCount: z.number().int().min(1).max(100).optional(),
+  preview: mockMissionPreviewSchema,
 });
 
 export async function POST(request: Request) {
@@ -20,8 +21,12 @@ export async function POST(request: Request) {
   const parsed = inputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return apiError("INVALID_COMMAND", "Command input is invalid.", 422, parsed.error.flatten());
   try {
-    const generated = await planMission(getAIProvider(), { name: parsed.data.name, objective: parsed.data.command });
-    const proposal = missionPlanProposal(generated.data);
+    const selectedId = parsed.data.accountIds?.[0];
+    const [account] = selectedId ? await db.select({ id: accounts.id, workspaceId: accounts.workspaceId, website: accounts.website, domain: accounts.domain }).from(accounts).where(and(eq(accounts.workspaceId, DEMO_WORKSPACE_ID), eq(accounts.id, selectedId))).limit(1) : [];
+    const accountGuard = guardMissionAccount({ accountIds: parsed.data.accountIds, workspaceId: DEMO_WORKSPACE_ID, account: account ?? null });
+    if (!accountGuard.ok) return apiError(accountGuard.code, accountGuard.message, 422);
+    const generated = parsed.data.preview;
+    const proposal = missionPlanProposal(generated.plan);
     const plays = await getPlays(DEMO_WORKSPACE_ID);
     const play = plays.find((item) => item.name === proposal.recommendedPlaybook);
     const mission = await createMission(DEMO_WORKSPACE_ID, DEMO_USER_ID, {
@@ -33,13 +38,13 @@ export async function POST(request: Request) {
       operatingMode: proposal.operatingMode,
       playId: play?.id,
       inputSource: proposal.inputSource,
-      targetAccountId: parsed.data.accountIds?.[0],
+      targetAccountId: accountGuard.accountId,
       targetCount: 1,
       maximumAccounts: 1,
       estimatedCostLimit: proposal.estimatedCost,
       testMode: true,
       stopConditions: ["Stop on suppression conflict", "Never send without approval"],
-      plan: generated.data,
+      plan: generated.plan,
       provider: generated.provider,
       model: generated.model,
     });

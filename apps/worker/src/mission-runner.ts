@@ -120,7 +120,8 @@ export async function executeMission(input: MissionRunInput, dependencies: Runne
     if (!accountId) throw new Error("MISSION_TARGET_ACCOUNT_REQUIRED: Mission has no selected account.");
     const [account] = await db.select().from(accounts).where(and(eq(accounts.workspaceId, input.workspaceId), eq(accounts.id, accountId))).limit(1);
     if (!account) throw new Error("MISSION_TARGET_ACCOUNT_NOT_FOUND: Selected account is outside this workspace or missing.");
-    if (!account.website) throw new Error("MISSION_TARGET_WEBSITE_REQUIRED: Selected account has no website URL.");
+    const websiteUrl = account.website;
+    if (!websiteUrl) throw new Error("MISSION_TARGET_WEBSITE_REQUIRED: Selected account has no website URL.");
 
     currentStage = "LOAD_KNOWLEDGE";
     await markStage(input, userId, account.id, currentStage, "Loading seller knowledge", 5);
@@ -136,17 +137,17 @@ export async function executeMission(input: MissionRunInput, dependencies: Runne
 
     currentStage = "LOAD_ACCOUNT";
     await markStage(input, userId, account.id, currentStage, "Loading the selected account", 12);
-    await completeStage(input, account.id, currentStage, { accountId: account.id, website: account.website });
+    await completeStage(input, account.id, currentStage, { accountId: account.id, website: websiteUrl });
 
     currentStage = "RESEARCH_WEBSITE";
     await markStage(input, userId, account.id, currentStage, "Fetching and researching the account website", 20);
-    const website = await fetchResearch({ accountId: account.id, websiteUrl: account.website });
+    const website = await fetchResearch({ accountId: account.id, websiteUrl });
     if (!website.ok) throw new Error(`WEBSITE_RESEARCH_FAILED: ${website.error.code}: ${website.error.message}`);
     result.website = website.data;
     await saveProgress(input, result, 30, "Website fetched");
-    await db.insert(agentEvents).values({ workspaceId: input.workspaceId, createdBy: userId, missionId: input.missionId, accountId: account.id, type: "WEBSITE_FETCHED", title: "Website pages fetched safely.", severity: "SUCCESS", occurredAt: now(), metadata: { pageCount: website.data.pages.length, fixture: isLocalDemoWebsite(account.website) } });
+    await db.insert(agentEvents).values({ workspaceId: input.workspaceId, createdBy: userId, missionId: input.missionId, accountId: account.id, type: "WEBSITE_FETCHED", title: "Website pages fetched safely.", severity: "SUCCESS", occurredAt: now(), metadata: { pageCount: website.data.pages.length, fixture: isLocalDemoWebsite(websiteUrl) } });
 
-    const researchGeneration = await ai.generateStructured({ operation: "company-research", systemInstruction: buildOperationInstruction("company-research", "Use only fetched pages. Every quote must be copied literally and sourceUrl must exactly equal one supplied page URL."), input: { accountId: account.id, companyName: account.name, website: account.website, pageContents: website.data.pages.map(({ url, title, text }) => ({ url, title, text })), evidenceUrls: website.data.pages.map((page) => page.url) }, outputSchema: companyResearchOutputSchema, promptVersion: "company-research-v2", temperature: 0.1, maxTokens: 1_800 });
+    const researchGeneration = await ai.generateStructured({ operation: "company-research", systemInstruction: buildOperationInstruction("company-research", "Use only fetched pages. Every quote must be copied literally and sourceUrl must exactly equal one supplied page URL."), input: { accountId: account.id, companyName: account.name, website: websiteUrl, pageContents: website.data.pages.map(({ url, title, text }) => ({ url, title, text })), evidenceUrls: website.data.pages.map((page) => page.url) }, outputSchema: companyResearchOutputSchema, promptVersion: "company-research-v2", temperature: 0.1, maxTokens: 1_800 });
     validateResearchEvidence(researchGeneration.data, website.data);
     result.research = researchGeneration.data;
     const savedEvidence = await db.transaction(async (tx) => {
@@ -186,7 +187,7 @@ export async function executeMission(input: MissionRunInput, dependencies: Runne
 
     currentStage = "GENERATE_OUTREACH";
     await markStage(input, userId, account.id, currentStage, "Generating a safe outreach draft", 88);
-    const outreachGeneration = await ai.generateStructured({ operation: "message", systemInstruction: buildOperationInstruction("message", "Return a DRAFT only. Body is at most 180 English words, includes a supplied evidence URL literally, uses only approved claims, and avoids prohibited claims."), input: { sellerKnowledge, account: { id: account.id, name: account.name, website: account.website }, companyResearch: researchGeneration.data, evidence: researchGeneration.data.evidence, signals: signalGeneration.data.signals, qualification: result.qualification, evidenceUrls }, outputSchema: outreachDraftSchema, promptVersion: "outreach-draft-v2", temperature: 0.2, maxTokens: 1_200 });
+    const outreachGeneration = await ai.generateStructured({ operation: "message", systemInstruction: buildOperationInstruction("message", "Return a DRAFT only. Body is at most 180 English words, includes a supplied evidence URL literally, uses only approved claims, and avoids prohibited claims."), input: { sellerKnowledge, account: { id: account.id, name: account.name, website: websiteUrl }, companyResearch: researchGeneration.data, evidence: researchGeneration.data.evidence, signals: signalGeneration.data.signals, qualification: result.qualification, evidenceUrls }, outputSchema: outreachDraftSchema, promptVersion: "outreach-draft-v2", temperature: 0.2, maxTokens: 1_200 });
     const outreachValidation = validateOutreachDraft(outreachGeneration.data, [...prohibitedOutreachClaims, ...sellerKnowledge.prohibitedClaims]);
     if (!outreachValidation.valid) throw new Error(`OUTREACH_VALIDATION_FAILED: ${outreachValidation.errors.join("; ")}`);
     const unsupportedClaim = outreachGeneration.data.claimsUsed.find((claim) => !sellerKnowledge.approvedClaims.includes(claim));

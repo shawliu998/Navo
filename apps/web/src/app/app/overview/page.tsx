@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   Target,
 } from "lucide-react";
-import { DEMO_WORKSPACE_ID, getAgentStatus, getOverview } from "@navo/db/queries";
+import { DEMO_WORKSPACE_ID, getAccounts, getAgentStatus, getOverview } from "@navo/db/queries";
 import { Badge, MetricCard, PageHeader, StatusBadge } from "@navo/ui";
 import { AgentCommandComposer } from "@/components/agent-command-composer";
 
@@ -36,9 +36,10 @@ function eventTone(severity: string) {
 }
 
 export default async function OverviewPage() {
-  const [overview, agent] = await Promise.all([
+  const [overview, agent, accounts] = await Promise.all([
     getOverview(DEMO_WORKSPACE_ID),
     getAgentStatus(DEMO_WORKSPACE_ID),
+    getAccounts(DEMO_WORKSPACE_ID),
   ]);
   const metrics = overview.metrics;
   const mission = agent.currentMission;
@@ -75,7 +76,7 @@ export default async function OverviewPage() {
         <StatusBadge status={agentStatus} />
       </section>
 
-      <AgentCommandComposer />
+      <AgentCommandComposer accounts={accounts.map(({ id, name, website, domain, country, industry }) => ({ id, name, website, domain, country, industry }))} />
 
       <section className="metrics-grid" style={{ gridTemplateColumns: "repeat(6,minmax(120px,1fr))", marginTop: 14 }}>
         <MetricCard label="Target accounts" value={metrics.imported} icon={<Building2 size={14} />} helper={`${metrics.researched} researched`} />
