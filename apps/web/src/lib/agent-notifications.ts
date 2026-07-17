@@ -20,7 +20,6 @@ export type AgentNotificationInputs = {
   events?: Array<{
     id?: string | null;
     type?: string | null;
-    title?: string | null;
     severity?: string | null;
     occurredAt?: Date | string | null;
     missionId?: string | null;
@@ -85,10 +84,17 @@ function eventDetail(type: string | null | undefined) {
   return "A safe-to-share agent activity was recorded.";
 }
 
-function safeEventTitle(title: string | null | undefined) {
-  const value = title?.trim().replace(/\s+/g, " ").slice(0, 120);
-  if (!value || /(prompt|reasoning|system message|api key|secret|password)/i.test(value)) return "Agent activity";
-  return value;
+function eventTitle(type: string | null | undefined) {
+  const normalized = type?.toUpperCase() ?? "";
+  if (normalized.includes("FAIL")) return "Agent step needs attention";
+  if (normalized.includes("APPROVAL")) return "Approval activity";
+  if (normalized.includes("TASK")) return "Task activity";
+  if (normalized.includes("RETRY")) return "Mission retry activity";
+  if (normalized.includes("EVIDENCE")) return "Evidence activity";
+  if (normalized.includes("SIGNAL")) return "Signal activity";
+  if (normalized.includes("QUALIF")) return "Qualification activity";
+  if (normalized.includes("DRAFT") || normalized.includes("MESSAGE")) return "Draft activity";
+  return "Agent activity";
 }
 
 export function deriveAgentNotifications(input: AgentNotificationInputs, limit = 20): AgentNotification[] {
@@ -102,7 +108,7 @@ export function deriveAgentNotifications(input: AgentNotificationInputs, limit =
       id: `event:${event.id}`,
       type: "AGENT_EVENT",
       severity: severity(event.severity, "INFO"),
-      title: safeEventTitle(event.title),
+      title: eventTitle(event.type),
       detail: eventDetail(event.type),
       occurredAt: iso(event.occurredAt),
       href: eventHref(event),

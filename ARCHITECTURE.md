@@ -33,7 +33,7 @@ not create a sending Approval or send real email.
 
 Mission follow-through derives its Completion Brief only from those persisted records. A
 draft edit is workspace-scoped and requires the Mission's linked `OUTBOUND` `DRAFT` message
-plus its previous `updatedAt` revision; its first change preserves original subject/body and
+plus its previous integer revision; its first change preserves original subject/body and
 the audit record stores changed flags and lengths, never the edited body. The notification
 center reads durable Mission, task and approval state; it does not expose reasoning or keys.
 

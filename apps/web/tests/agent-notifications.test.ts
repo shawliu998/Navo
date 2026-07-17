@@ -4,7 +4,7 @@ import { deriveAgentNotifications } from "../src/lib/agent-notifications";
 describe("deriveAgentNotifications", () => {
   it("sorts failures and operator actions ahead of informational activity", () => {
     const notifications = deriveAgentNotifications({
-      events: [{ id: "event-info", title: "Research saved", severity: "INFO", occurredAt: "2026-01-03T00:00:00.000Z", missionId: "mission-1" }],
+      events: [{ id: "event-info", type: "RESEARCH_SAVED", severity: "INFO", occurredAt: "2026-01-03T00:00:00.000Z", missionId: "mission-1" }],
       missions: [{ id: "mission-1", status: "FAILED", updatedAt: "2026-01-02T00:00:00.000Z" }],
       approvals: [{ id: "approval-1", status: "PENDING", createdAt: "2026-01-01T00:00:00.000Z" }],
       tasks: [{ id: "task-1", status: "OPEN", createdAt: "2025-12-31T00:00:00.000Z" }],
@@ -15,9 +15,9 @@ describe("deriveAgentNotifications", () => {
   it("uses stable links and excludes missing records", () => {
     const notifications = deriveAgentNotifications({
       events: [
-        { id: "e-1", type: "APPROVAL_REQUESTED", title: "Approval requested", approvalId: "a-1" },
-        { id: "e-2", type: "TASK_CREATED", title: "Task created", taskId: "t-1" },
-        { title: "No stable id" },
+        { id: "e-1", type: "APPROVAL_REQUESTED", approvalId: "a-1" },
+        { id: "e-2", type: "TASK_CREATED", taskId: "t-1" },
+        {},
       ],
       missions: [{ id: "m-1", status: "COMPLETED", completedAt: "2026-01-01T00:00:00.000Z" }, { status: "FAILED" }],
     });
@@ -29,11 +29,12 @@ describe("deriveAgentNotifications", () => {
 
   it("does not expose event descriptions or metadata", () => {
     const notifications = deriveAgentNotifications({
-      events: [{ id: "e-sensitive", title: "Research saved", description: "prompt: secret reasoning", metadata: { apiKey: "secret" } } as never],
+      events: [{ id: "e-sensitive", type: "RESEARCH_SAVED", title: "tok_live_4Fj29xQ7Lm83NsP0", description: "prompt: secret reasoning", metadata: { apiKey: "secret" } } as never],
       missions: [{ id: "m-1", status: "FAILED", error: "provider key secret" } as never],
     });
     const serialized = JSON.stringify(notifications);
     expect(serialized).not.toContain("secret");
     expect(serialized).not.toContain("reasoning");
+    expect(serialized).not.toContain("tok_live_4Fj29xQ7Lm83NsP0");
   });
 });

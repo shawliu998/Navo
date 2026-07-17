@@ -8,7 +8,7 @@ export async function GET() {
   if (!await requireDemoSession()) return apiError("UNAUTHENTICATED", "Login required.", 401);
 
   const [events, missions, pendingApprovals, openTasks] = await Promise.all([
-    db.select({ id: agentEvents.id, type: agentEvents.type, title: agentEvents.title, severity: agentEvents.severity, occurredAt: agentEvents.occurredAt, missionId: agentEvents.missionId, approvalId: agentEvents.approvalId, taskId: agentEvents.taskId })
+    db.select({ id: agentEvents.id, type: agentEvents.type, severity: agentEvents.severity, occurredAt: agentEvents.occurredAt, missionId: agentEvents.missionId, approvalId: agentEvents.approvalId, taskId: agentEvents.taskId })
       .from(agentEvents)
       .where(eq(agentEvents.workspaceId, DEMO_WORKSPACE_ID))
       .orderBy(desc(agentEvents.occurredAt))

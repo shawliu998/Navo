@@ -90,7 +90,7 @@ test.describe.serial("Navo account intelligence and reply loop", () => {
     const replyResponse = await response;
     expect([200, 201]).toContain(replyResponse.status());
     const replyPayload = await replyResponse.json();
-    await expect(page.getByRole("status")).toContainText("REPLY");
+    await expect(page.getByRole("status")).toContainText(/reply loop completed/i);
     await page.goto(`/app/conversations/${replyPayload.data.message.conversationId}`);
     await expect(page.getByText("Conversation summary")).toBeVisible();
     await expect(page.getByText("Next Best Action")).toBeVisible();
