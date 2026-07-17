@@ -12,7 +12,6 @@ import {
   ChevronDown,
   CircleHelp,
   GitBranch,
-  Inbox,
   LayoutDashboard,
   Link2,
   ListChecks,
@@ -26,6 +25,7 @@ import {
 } from "lucide-react";
 import { AgentStatusControl } from "./agent-status-control";
 import { CommandMenu } from "./command-menu";
+import { AgentNotificationCenter } from "./agent-notifications";
 
 const navGroups = [
   {
@@ -155,10 +155,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <AgentStatusControl />
           <div className="topbar-actions">
             <CommandMenu />
-            <button className="icon-button" aria-label="Notifications" type="button">
-              <Inbox size={16} />
-              <span className="notification-dot" aria-hidden="true" />
-            </button>
+            <AgentNotificationCenter />
             <button className="icon-button topbar-members" aria-label="Workspace members" type="button">
               <UsersRound size={16} />
             </button>

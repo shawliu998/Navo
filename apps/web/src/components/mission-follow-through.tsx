@@ -5,6 +5,7 @@ import { useState } from "react";
 import { CheckCircle2, ClipboardPlus, FilePenLine, Loader2, RotateCcw, Save, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { CompletionBrief } from "@/lib/mission-completion-brief";
+import { getDraftComparison } from "@/lib/draft-comparison";
 
 function messageFrom(payload: unknown, fallback: string) {
   if (!payload || typeof payload !== "object") return fallback;
@@ -54,9 +55,11 @@ export function MissionCompletionBrief({ brief, missionId }: { brief: Completion
   </section>;
 }
 
-export function DraftMessageEditor({ missionId, message }: { missionId: string; message: { id: string; subject: string; body: string; updatedAt: string } }) {
+export function DraftMessageEditor({ missionId, message }: { missionId: string; message: { id: string; subject: string; body: string; originalSubject?: string | null; originalBody?: string | null; updatedAt: string } }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false); const [subject, setSubject] = useState(message.subject); const [body, setBody] = useState(message.body); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const comparison = getDraftComparison({ originalSubject: message.originalSubject, originalBody: message.originalBody, currentSubject: subject, currentBody: body });
+  const lastUpdated = new Date(message.updatedAt).toLocaleString("en", { dateStyle: "medium", timeStyle: "short" });
   const cancel = () => { setSubject(message.subject); setBody(message.body); setError(""); setEditing(false); };
   const save = async () => {
     if (!subject.trim() || !body.trim()) return setError("Subject and body cannot be empty.");
@@ -70,6 +73,17 @@ export function DraftMessageEditor({ missionId, message }: { missionId: string; 
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save this DRAFT."); }
     finally { setBusy(false); }
   };
-  if (!editing) return <><strong>{message.subject}</strong><p style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{message.body}</p><button className="button button-secondary" type="button" onClick={() => setEditing(true)}><FilePenLine size={14}/>Edit draft</button></>;
-  return <div className="stack" style={{ gap: 10 }}><label className="field"><span>Subject</span><input value={subject} maxLength={180} onChange={(event) => setSubject(event.target.value)} /></label><label className="field"><span>Body</span><textarea value={body} maxLength={4_000} rows={9} onChange={(event) => setBody(event.target.value)} /><small className="muted">{body.length}/4000 · DRAFT only, no email is sent.</small></label>{error && <div className="alert alert-warning" role="alert">{error}</div>}<div className="page-actions"><button className="button button-primary" type="button" onClick={() => void save()} disabled={busy}>{busy ? <Loader2 className="spin" size={14}/> : <Save size={14}/>}Save draft</button><button className="button button-ghost" type="button" onClick={cancel} disabled={busy}><X size={14}/>Cancel</button></div></div>;
+  const comparisonBlock = comparison.showOriginal && <details className="draft-comparison">
+    <summary>Original vs Current <span className="badge badge-neutral">Original is read-only</span></summary>
+    <div className="draft-comparison-grid">
+      <article><div className="draft-comparison-label">Original</div><strong>{comparison.originalSubject}</strong><p>{comparison.originalBody}</p></article>
+      <article><div className="draft-comparison-label">Current</div><strong>{comparison.currentSubject}</strong><p>{comparison.currentBody}</p></article>
+    </div>
+  </details>;
+  const currentDraft = <><strong>{subject}</strong><p style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{body}</p></>;
+  return <div className="draft-editor-shell">
+    <div className="draft-meta"><span>Current revision</span><strong>{lastUpdated}</strong><span className="badge badge-neutral">DRAFT only · no email sent</span></div>
+    {comparisonBlock}
+    {!editing ? <>{currentDraft}<button className="button button-secondary" type="button" onClick={() => setEditing(true)}><FilePenLine size={14}/>Edit draft</button></> : <div className="stack" style={{ gap: 10 }}><label className="field"><span>Subject</span><input value={subject} maxLength={180} onChange={(event) => setSubject(event.target.value)} /></label><label className="field"><span>Body</span><textarea value={body} maxLength={4_000} rows={9} onChange={(event) => setBody(event.target.value)} /><small className="muted">{body.length}/4000 · DRAFT only, no email is sent.</small></label>{error && <div className="alert alert-warning" role="alert">{error}</div>}<div className="page-actions"><button className="button button-primary" type="button" onClick={() => void save()} disabled={busy}>{busy ? <Loader2 className="spin" size={14}/> : <Save size={14}/>}Save draft</button><button className="button button-ghost" type="button" onClick={cancel} disabled={busy}><X size={14}/>Cancel</button></div></div>}
+  </div>;
 }
