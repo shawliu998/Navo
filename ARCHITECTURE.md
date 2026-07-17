@@ -49,8 +49,10 @@ Reply handling is deterministic and idempotent for the same simulated event. A r
 
 ## Trust boundaries
 
-- Every domain record carries `workspaceId`; repository methods require it as an explicit argument.
-- Server routes derive workspace membership and role from the server session and never trust a client-supplied workspace alone.
+- Tenant-scoped domain records carry `workspaceId`; repository methods require it as an explicit argument.
+- The current demo routes validate the fixed demo-session cookie and then use a server-owned
+  `DEMO_WORKSPACE_ID`; they never accept a client-supplied workspace ID. General session-backed
+  workspace membership and role resolution is not implemented yet.
 - AI providers only return schema-validated structured output. They cannot publish Plays, approve actions, send messages, modify CRM state directly or bypass policy.
 - Evidence, inference, decisions, conversation summaries and memory facts remain distinct records with source references and provenance.
 - Website pages are untrusted input. Research enforces SSRF protections, bounded response/page sizes, redirect limits and a bounded page scope; generated quotes must match fetched source text and URLs.
@@ -88,10 +90,10 @@ research evidence, qualification results, messages, runs and audit records. Redi
 transport, not durable business state. Queue payloads carry IDs only; the worker rehydrates
 records using explicit `workspaceId` predicates before reading or writing.
 
-Every domain record carries `workspaceId`, and repository methods require the workspace as an
-explicit argument. Server routes derive session membership and do not trust a client-supplied
-workspace alone. Cross-workspace references are rejected by the domain and persistence
-boundaries.
+Tenant-scoped domain records carry `workspaceId`, and repository methods require the workspace
+as an explicit argument. Current demo routes pin the authenticated demo session to the fixed
+demo workspace rather than implementing general membership or role resolution. Cross-workspace
+references in the Mission and Knowledge paths are constrained by explicit workspace predicates.
 
 ## Local infrastructure and delivery safety
 
