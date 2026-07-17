@@ -1,9 +1,9 @@
 {
-  "name": "@exportplay/worker",
+  "name": "@navo/worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": { "dev": "tsx watch src/index.ts", "build": "tsc -p tsconfig.json", "lint": "tsc --noEmit", "typecheck": "tsc --noEmit", "test": "vitest run --passWithNoTests" },
-  "dependencies": { "@exportplay/agents": "workspace:*", "@exportplay/db": "workspace:*", "@exportplay/workflows": "workspace:*", "bullmq": "^5.80.5", "dotenv": "^17.2.3", "ioredis": "^5.11.1" },
+  "dependencies": { "@navo/agents": "workspace:*", "@navo/db": "workspace:*", "@navo/workflows": "workspace:*", "bullmq": "^5.80.5", "dotenv": "^17.2.3", "ioredis": "^5.11.1" },
   "devDependencies": { "tsx": "^4.20.3", "typescript": "^5.8.3", "vitest": "^3.2.4" }
 }

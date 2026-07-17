@@ -72,4 +72,11 @@ Real DeepSeek calls require a server-only `DEEPSEEK_API_KEY`; the key must never
 
 Docker Compose exposes PostgreSQL on `54322` and Redis on `56379` to avoid common local port collisions. Outbound email always uses an in-memory/database EmailSink in the MVP. Reply, bounce, unsubscribe and complaint endpoints simulate provider webhooks and exercise the full domain flow; they do not send real email or call a real mailbox provider.
 
+Sprint 0.2 also makes `navo` the internal workspace scope, Compose project, PostgreSQL
+database/user and development volume prefix. This rename intentionally does not mutate or
+delete legacy `exportplay` volumes. Existing development data must be moved with an
+explicit dump/restore as documented in the README; retaining the former `DATABASE_URL`
+temporarily remains supported during that migration window. The SQL migration history is
+unchanged, so restored databases continue from the same Drizzle migration ledger.
+
 External Gmail, Outlook, HubSpot, Resend, Firecrawl and contact-data integrations remain adapters or placeholders behind explicit interfaces.

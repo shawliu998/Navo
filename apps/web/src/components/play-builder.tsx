@@ -42,7 +42,7 @@ import {
   Users,
   Workflow,
 } from "lucide-react";
-import { nodeRegistry, nodeRegistryByType } from "@exportplay/workflows";
+import { nodeRegistry, nodeRegistryByType } from "@navo/workflows";
 
 type FlowData = {
   label: string;
@@ -238,7 +238,7 @@ export function PlayBuilder({
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
-      const type = event.dataTransfer.getData("application/exportplay-node");
+      const type = event.dataTransfer.getData("application/navo-node");
       const definition = nodeRegistryByType.get(type);
       if (!definition || !flow) return;
       const position = flow.screenToFlowPosition({
@@ -361,7 +361,7 @@ export function PlayBuilder({
                       draggable
                       onDragStart={(event) => {
                         event.dataTransfer.setData(
-                          "application/exportplay-node",
+                          "application/navo-node",
                           node.type,
                         );
                         event.dataTransfer.effectAllowed = "move";

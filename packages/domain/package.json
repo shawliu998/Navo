@@ -1,5 +1,5 @@
 {
-  "name": "@exportplay/domain",
+  "name": "@navo/domain",
   "version": "0.1.0",
   "private": true,
   "type": "module",

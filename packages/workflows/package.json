@@ -1,10 +1,10 @@
 {
-  "name": "@exportplay/workflows",
+  "name": "@navo/workflows",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": { ".": "./src/index.ts" },
   "scripts": { "build": "tsc --noEmit", "lint": "tsc --noEmit", "typecheck": "tsc --noEmit", "test": "vitest run" },
-  "dependencies": { "@exportplay/agents": "workspace:*", "@exportplay/domain": "workspace:*", "zod": "^4.4.3" },
+  "dependencies": { "@navo/agents": "workspace:*", "@navo/domain": "workspace:*", "zod": "^4.4.3" },
   "devDependencies": { "typescript": "^5.8.3", "vitest": "^3.2.4" }
 }

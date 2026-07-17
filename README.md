@@ -37,6 +37,38 @@ pnpm db:seed
 pnpm dev
 ```
 
+### Existing ExportPlay development databases
+
+Sprint 0.2 renames the Compose project, PostgreSQL database/user and named volumes from
+`exportplay` to `navo`. Docker does not rename volumes in place. The previous
+`exportplay_exportplay-postgres` and `exportplay_exportplay-redis` volumes are therefore
+left untouched, while `docker compose up -d` creates the new `navo_navo-postgres` and
+`navo_navo-redis` volumes. This prevents an automatic, destructive conversion, but the
+new stack initially appears empty until it is seeded or restored.
+
+Before updating a development checkout that contains data worth retaining, create a dump
+while the old stack is running:
+
+```bash
+docker compose exec -T postgres pg_dump -U exportplay -d exportplay -Fc > navo-pre-0.2.dump
+```
+
+After updating, start the renamed stack, run its migrations, then restore without carrying
+the old database owner across:
+
+```bash
+docker compose up -d postgres redis
+pnpm db:migrate
+docker compose exec -T postgres pg_restore -U navo -d navo --clean --if-exists --no-owner --no-privileges < navo-pre-0.2.dump
+```
+
+For disposable demo data, skip the restore and run `pnpm db:seed`. If the old stack is no
+longer running, locate its retained volume with `docker volume ls` and temporarily start
+the prior repository revision to produce the dump. Do not run `docker compose down -v`
+until the backup has been verified. A local `.env.local` that deliberately targets the old
+database may be retained temporarily; the checked-in default now uses
+`postgresql://navo:navo@localhost:54322/navo`.
+
 Validate the workspace with:
 
 ```bash

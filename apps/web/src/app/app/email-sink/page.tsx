@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { FlaskConical, MailCheck, ShieldCheck } from "lucide-react";
-import { DEMO_WORKSPACE_ID, getEmailSinkMessages } from "@exportplay/db/queries";
-import { Badge, PageHeader, StatusBadge } from "@exportplay/ui";
+import { DEMO_WORKSPACE_ID, getEmailSinkMessages } from "@navo/db/queries";
+import { Badge, PageHeader, StatusBadge } from "@navo/ui";
 import { EmailSinkActions } from "@/components/email-sink-actions";
 
 export default async function EmailSinkPage({ searchParams }: { searchParams: Promise<{ messageId?: string }> }) {

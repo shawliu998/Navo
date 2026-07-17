@@ -1,7 +1,41 @@
-import { Bot, Database, Mail, Radio, Search, Send, Webhook } from "lucide-react";
-import { DEMO_WORKSPACE_ID, getIntegrations } from "@exportplay/db/queries";
-import { Badge, Button, PageHeader, StatusBadge } from "@exportplay/ui";
-const placeholders=[
-  ["Gmail","EMAIL","OAuth mailbox adapter",Mail],["Microsoft Outlook","EMAIL","Microsoft Graph mailbox adapter",Mail],["HubSpot","CRM","Account, Contact and Activity sync",Database],["Generic Webhook","CRM","Signed outbound event delivery",Webhook],["Firecrawl","RESEARCH","Crawl and structured page extraction",Search],["Feishu Approval","APPROVAL","Approval notification placeholder",Send],["WeCom Approval","APPROVAL","Approval notification placeholder",Radio],
-] as const;
-export default async function IntegrationsPage(){const connected=await getIntegrations(DEMO_WORKSPACE_ID);const all=[...connected.map(item=>({id:item.id,name:item.provider,category:item.category,description:item.provider==="DeepSeek"?"OpenAI-compatible structured generation adapter":item.provider==="EmailSink"?"Database-backed development email sandbox":"Deterministic research fixtures",status:item.status,Icon:item.category==="AI"?Bot:item.category==="EMAIL"?Mail:Search})),...placeholders.map(([name,category,description,Icon],index)=>({id:`placeholder-${index}`,name,category,description,status:"NOT_CONNECTED",Icon}))];return <div className="page"><PageHeader eyebrow="ADAPTERS" title="Integrations" description="外部服务通过 Provider Adapter 接入；第三方 SDK 类型不会泄漏到领域层。Secrets 始终仅在服务端读取。"/><div className="integration-grid">{all.map(({id,name,category,description,status,Icon})=><article className="integration-card" key={id}><div className="integration-icon"><Icon size={18}/></div><div className="card-header"><div><h3>{name}</h3><Badge tone="neutral">{category}</Badge></div><StatusBadge status={status}/></div><p>{description}</p><div className="guardrail-item"><small>Permissions</small><strong>{status==="NOT_CONNECTED"?"None granted":"Server-side only"}</strong></div><Button variant="secondary" style={{width:"100%",marginTop:12}}>{status==="NOT_CONNECTED"?"Connect":"Configure"}</Button></article>)}</div></div>}
+import { Bot, CheckCircle2, Clock3, Mail, Search, ShieldCheck, Wrench } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { DEMO_WORKSPACE_ID, getIntegrations } from "@navo/db/queries";
+import { Badge, MetricCard, PageHeader, StatusBadge } from "@navo/ui";
+
+export const metadata = { title: "Tool Status" };
+
+const icons: Record<string, LucideIcon> = { AI: Bot, EMAIL: Mail, RESEARCH: Search };
+
+export default async function IntegrationsPage() {
+  const tools = await getIntegrations(DEMO_WORKSPACE_ID);
+  const available = tools.filter((tool) => tool.status === "CONNECTED" || tool.status === "CONFIGURED");
+  const synced = tools.filter((tool) => tool.lastSyncAt);
+
+  return <div className="page">
+    <PageHeader eyebrow="RUNTIME TOOLS" title="Tool Status" description="Navo 可在 Mission 中调用的已配置适配器。状态、权限和最后活动直接来自工作区连接记录。"/>
+    <section className="metrics-grid">
+      <MetricCard label="Registered tools" value={tools.length} helper="Workspace scoped" icon={<Wrench size={14}/>}/>
+      <MetricCard label="Available" value={available.length} helper="Connected or configured" icon={<CheckCircle2 size={14}/>}/>
+      <MetricCard label="Activity recorded" value={synced.length} helper="Has a last activity time" icon={<Clock3 size={14}/>}/>
+    </section>
+    <div className="integration-grid">{tools.map((tool) => {
+      const Icon = icons[tool.category] ?? Wrench;
+      const permissions = tool.permissions as string[];
+      const config = tool.config as Record<string, unknown>;
+      return <article className="integration-card" key={tool.id}>
+        <div className="integration-icon"><Icon size={18}/></div>
+        <div className="card-header"><div><h3>{tool.provider}</h3><Badge tone="neutral">{tool.category}</Badge></div><StatusBadge status={tool.status}/></div>
+        <p>{tool.category === "EMAIL" ? "Controlled development delivery channel" : tool.category === "AI" ? "Server-side structured generation provider" : "Deterministic research and extraction adapter"}</p>
+        <div className="guardrail-item"><small>Granted capabilities</small><strong>{permissions.length ? permissions.join(", ") : "None"}</strong></div>
+        <div className="guardrail-item"><small>Last activity</small><strong>{tool.lastSyncAt ? tool.lastSyncAt.toLocaleString("zh-CN") : "No activity recorded"}</strong></div>
+        <div className="toolbar-group" style={{marginTop: 12, flexWrap: "wrap"}}>
+          {config.serverOnly === true && <Badge tone="success"><ShieldCheck size={11}/>Server only</Badge>}
+          {config.deterministic === true && <Badge tone="info">Deterministic</Badge>}
+          {config.testMode === true && <Badge tone="warning">Test mode</Badge>}
+        </div>
+      </article>;
+    })}</div>
+    <div className="alert alert-info" style={{marginTop: 14}}><ShieldCheck size={16}/><span>本页仅展示数据库中已注册的工具；不对未连接的外部服务做可用性承诺。</span></div>
+  </div>;
+}

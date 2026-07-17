@@ -18,8 +18,8 @@ test.describe.serial("Navo account intelligence and reply loop", () => {
   });
 
   test("login, overview, accounts and evidence", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "增长运行中心" })).toBeVisible();
-    await expect(page.getByText("Imported Accounts")).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Good morning|Command Center/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Navo is active/i })).toBeVisible();
     await page.screenshot({ path: path.join(shots, "overview.png"), fullPage: true });
     await page.goto("/app/accounts");
     await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();

@@ -20,19 +20,19 @@ importers:
 
   apps/web:
     dependencies:
-      '@exportplay/agents':
+      '@navo/agents':
         specifier: workspace:*
         version: link:../../packages/agents
-      '@exportplay/db':
+      '@navo/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@exportplay/domain':
+      '@navo/domain':
         specifier: workspace:*
         version: link:../../packages/domain
-      '@exportplay/ui':
+      '@navo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-      '@exportplay/workflows':
+      '@navo/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
       '@tanstack/react-table':
@@ -90,13 +90,13 @@ importers:
 
   apps/worker:
     dependencies:
-      '@exportplay/agents':
+      '@navo/agents':
         specifier: workspace:*
         version: link:../../packages/agents
-      '@exportplay/db':
+      '@navo/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@exportplay/workflows':
+      '@navo/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
       bullmq:
@@ -121,7 +121,7 @@ importers:
 
   packages/agents:
     dependencies:
-      '@exportplay/domain':
+      '@navo/domain':
         specifier: workspace:*
         version: link:../domain
       dotenv:
@@ -200,10 +200,10 @@ importers:
 
   packages/workflows:
     dependencies:
-      '@exportplay/agents':
+      '@navo/agents':
         specifier: workspace:*
         version: link:../agents
-      '@exportplay/domain':
+      '@navo/domain':
         specifier: workspace:*
         version: link:../domain
       zod:

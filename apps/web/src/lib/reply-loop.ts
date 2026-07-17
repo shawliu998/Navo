@@ -5,7 +5,7 @@ import {
   proposeNextBestAction,
   summarizeConversation,
   type ReplyEventType,
-} from "@exportplay/domain";
+} from "@navo/domain";
 import {
   accounts,
   auditLogs,
@@ -25,8 +25,8 @@ import {
   runs,
   suppressionEntries,
   tasks,
-} from "@exportplay/db";
-import { DEMO_WORKSPACE_ID } from "@exportplay/db/queries";
+} from "@navo/db";
+import { DEMO_WORKSPACE_ID } from "@navo/db/queries";
 
 export type EmailSinkEvent = {
   eventType: ReplyEventType;
