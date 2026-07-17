@@ -194,6 +194,7 @@ await db.transaction(async (tx) => {
     connectedTools: ["Mission Planner", "Account Database", "Website Fetch", "Company Research", "Signal Extraction", "Qualification", "Account Ranking", "Outreach Draft", "Task Creation", "Account Memory"],
     capabilities: ["AUTONOMOUS_PLANNING", "ACCOUNT_SELECTION", "RESEARCH", "SIGNAL_EXTRACTION", "QUALIFICATION", "RANKING", "DRAFT", "MEMORY_UPDATE", "TASK_CREATION"],
     currentActivity: "Extracting expansion and hiring signals", lastHeartbeatAt: now,
+    directorEnabled: true, directorIntervalMinutes: 15, directorCooldownMinutes: 60, directorMaxActiveMissions: 1, directorDailyMissionLimit: 3,
   });
   await tx.insert(agentPreferences).values({
     id: id(1891), workspaceId: DEMO_WORKSPACE_ID, createdBy: DEMO_USER_ID, profileId: id(1890), operatingMode: "AUTONOMOUS",

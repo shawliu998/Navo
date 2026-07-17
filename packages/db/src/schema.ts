@@ -81,6 +81,14 @@ export const agentProfiles = pgTable("agent_profiles", {
   capabilities: jsonb("capabilities").default([]).notNull(),
   currentActivity: text("current_activity"),
   lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  directorEnabled: boolean("director_enabled").default(false).notNull(),
+  directorIntervalMinutes: integer("director_interval_minutes").default(15).notNull(),
+  directorCooldownMinutes: integer("director_cooldown_minutes").default(60).notNull(),
+  directorMaxActiveMissions: integer("director_max_active_missions").default(1).notNull(),
+  directorDailyMissionLimit: integer("director_daily_mission_limit").default(3).notNull(),
+  lastDirectorDecisionAt: timestamp("last_director_decision_at", { withTimezone: true }),
+  nextDirectorTickAt: timestamp("next_director_tick_at", { withTimezone: true }),
+  lastDirectorDecision: jsonb("last_director_decision").default({}).notNull(),
 }, (table) => [uniqueIndex("agent_profile_workspace_unique").on(table.workspaceId)]);
 
 export const agentMissions = pgTable("agent_missions", {
@@ -120,6 +128,7 @@ export const agentMissions = pgTable("agent_missions", {
   continuationDepth: integer("continuation_depth").default(0).notNull(),
   maximumContinuations: integer("maximum_continuations").default(0).notNull(),
   autoContinue: boolean("auto_continue").default(false).notNull(),
+  directorTickId: uuid("director_tick_id"),
   targetAccountId: uuid("target_account_id"),
   provider: text("provider"),
   model: text("model"),
@@ -135,6 +144,7 @@ export const agentMissions = pgTable("agent_missions", {
   index("agent_missions_workspace_retry_of_idx").on(table.workspaceId, table.retryOfMissionId, table.updatedAt),
   index("agent_missions_workspace_root_idx").on(table.workspaceId, table.rootMissionId, table.continuationDepth),
   uniqueIndex("agent_missions_parent_unique").on(table.workspaceId, table.parentMissionId).where(sql`"parent_mission_id" IS NOT NULL`),
+  uniqueIndex("agent_missions_director_tick_unique").on(table.workspaceId, table.directorTickId).where(sql`"director_tick_id" IS NOT NULL`),
   uniqueIndex("agent_missions_active_retry_unique").on(table.workspaceId, table.retryOfMissionId).where(sql`"retry_of_mission_id" IS NOT NULL AND "status" NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')`),
 ]);
 

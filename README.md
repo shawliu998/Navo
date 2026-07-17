@@ -28,6 +28,14 @@ continue with unused workspace accounts. Every successor stores its parent, root
 PostgreSQL permits only one child per parent, and the chain stops at `maximumContinuations`.
 The workspace pause defers successor creation; resuming Navo requeues eligible deferred decisions.
 
+The Agent Director closes the outermost loop. BullMQ emits a lightweight `agent.tick` every
+minute; the persisted profile interval determines when a real evaluation is due. When no active
+Mission blocks work, the Director reads eligible accounts, recent signals, open tasks and prepared
+Missions, then chooses `WAIT`, `RESUME_MISSION` or `CREATE_MISSION`. New root Missions are linked
+to a unique Director tick and enter the same bounded planning and continuation runtime. Persisted
+cooldown, active-Mission and daily-root limits prevent duplicate or unbounded starts. Pausing Navo
+suppresses Director work; resuming schedules an immediate evaluation.
+
 Registered tools are Load Seller Knowledge, Select Target Accounts, Create Target Account,
 Website Fetch, Research Company, Extract Signals, Qualify Account, Rank Accounts, Generate
 Outreach, Create Task, Update Memory and Summarize Mission.

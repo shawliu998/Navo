@@ -78,6 +78,13 @@
       "when": 1784308242631,
       "tag": "0010_giant_guardian",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784310500029,
+      "tag": "0011_goofy_speedball",
+      "breakpoints": true
     }
   ]
 }

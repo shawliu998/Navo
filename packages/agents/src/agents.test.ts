@@ -4,6 +4,7 @@ import {
   DeepSeekAIProvider,
   MockAIProvider,
   accountRankingOutputSchema,
+  agentDirectorDecisionSchema,
   buildOperationInstruction,
   companyResearchOutputSchema,
   contactDiscoveryOutputSchema,
@@ -89,7 +90,7 @@ describe("structured AI contracts", () => {
   });
 
   it("puts prompt-injection, quote, secrecy, and sending guardrails in every operation instruction", () => {
-    for (const operation of ["mission-plan", "mission-continuation", "website-checkpoint", "qualification-checkpoint", "ranking-checkpoint", "company-research", "signal-extraction", "qualification", "rank-accounts", "contact-discovery", "message", "mission-summary"] as const) {
+    for (const operation of ["mission-plan", "mission-continuation", "agent-director", "website-checkpoint", "qualification-checkpoint", "ranking-checkpoint", "company-research", "signal-extraction", "qualification", "rank-accounts", "contact-discovery", "message", "mission-summary"] as const) {
       const instruction = buildOperationInstruction(operation);
       expect(instruction).toContain("untrusted");
       expect(instruction).toContain("Quotes must be literal excerpts from supplied input");
@@ -130,6 +131,7 @@ describe("AI provider contract regressions", () => {
     const provider = new MockAIProvider();
     const plan = await provider.generateStructured({ operation: "mission-plan", systemInstruction: "Plan.", input: { missionType: "OUTREACH_PREPARATION" }, outputSchema: missionPlanSchema, promptVersion: "test-v2" });
     const continuation = await provider.generateStructured({ operation: "mission-continuation", systemInstruction: "Continue.", input: { completedMission: { type: "OPPORTUNITY_DISCOVERY", bestAccountId: "00000000-0000-4000-8000-000000000101", targetCriteria: validPlan.targetCriteria }, remainingAccounts: [] }, outputSchema: missionContinuationDecisionSchema, promptVersion: "test-v1" });
+    const director = await provider.generateStructured({ operation: "agent-director", systemInstruction: "Direct.", input: { eligibleAccounts: [{ id: "00000000-0000-4000-8000-000000000101" }], defaultTargetCriteria: validPlan.targetCriteria }, outputSchema: agentDirectorDecisionSchema, promptVersion: "test-v1" });
     const research = await provider.generateStructured({ operation: "company-research", systemInstruction: "Research.", input: {}, outputSchema: companyResearchOutputSchema, promptVersion: "test-v2" });
     const signals = await provider.generateStructured({ operation: "signal-extraction", systemInstruction: "Extract.", input: {}, outputSchema: salesSignalOutputSchema, promptVersion: "test-v2" });
     const accountId = "00000000-0000-4000-8000-000000000101";
@@ -138,6 +140,7 @@ describe("AI provider contract regressions", () => {
     expect(plan.data.missionType).toBe("OUTREACH_PREPARATION");
     expect(plan.data.steps[0]).toEqual(expect.objectContaining({ id: "load-knowledge", type: "LOAD_SELLER_KNOWLEDGE" }));
     expect(continuation.data).toEqual(expect.objectContaining({ action: "CREATE_SUCCESSOR", missionType: "OUTREACH_PREPARATION", targetAccountId: "00000000-0000-4000-8000-000000000101" }));
+    expect(director.data).toEqual(expect.objectContaining({ action: "CREATE_MISSION", missionType: "OPPORTUNITY_DISCOVERY", targetAccountIds: ["00000000-0000-4000-8000-000000000101"] }));
     expect(research.data).toEqual(expect.objectContaining({ website: "https://nova-automation.example" }));
     expect(signals.data.signals[0]).toEqual(expect.objectContaining({ type: "EXPANSION", rationale: expect.any(String) }));
     expect(contacts.data.candidates[0]).toEqual(expect.objectContaining({ fullName: "Alex Morgan", department: "QUALITY", email: null }));

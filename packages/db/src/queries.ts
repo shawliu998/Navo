@@ -240,6 +240,7 @@ export type CreateMissionInput = {
   continuationDepth?: number;
   maximumContinuations?: number;
   autoContinue?: boolean;
+  directorTickId?: string;
 };
 
 export async function getAgentStatus(workspaceId: string) {
@@ -263,7 +264,7 @@ export async function setAgentPaused(workspaceId: string, userId: string, paused
     const [profile] = await tx.select().from(agentProfiles).where(eq(agentProfiles.workspaceId, workspaceId)).limit(1);
     if (!profile) return null;
     const changedAt = new Date();
-    const [updated] = await tx.update(agentProfiles).set({ status: paused ? "PAUSED" : "RUNNING", currentActivity: paused ? "Paused by operator" : "Monitoring active missions", lastHeartbeatAt: changedAt, updatedAt: changedAt }).where(and(eq(agentProfiles.workspaceId, workspaceId), eq(agentProfiles.id, profile.id))).returning();
+    const [updated] = await tx.update(agentProfiles).set({ status: paused ? "PAUSED" : "RUNNING", currentActivity: paused ? "Paused by operator" : "Monitoring active missions", lastHeartbeatAt: changedAt, nextDirectorTickAt: paused ? profile.nextDirectorTickAt : changedAt, updatedAt: changedAt }).where(and(eq(agentProfiles.workspaceId, workspaceId), eq(agentProfiles.id, profile.id))).returning();
     await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, type: paused ? "AGENT_PAUSED" : "AGENT_RESUMED", title: paused ? "Navo was paused by the operator." : "Navo resumed monitoring missions.", severity: paused ? "WARNING" : "INFO", occurredAt: changedAt, metadata: { scope: "workspace", deterministic: true } });
     return updated ?? null;
   });
@@ -317,7 +318,7 @@ async function createMissionInTransaction(tx: MissionTransaction, workspaceId: s
     testMode: input.testMode ?? true, dueAt: input.dueAt, targetCriteria: input.targetCriteria ?? {}, stopConditions: input.stopConditions ?? [],
     plan: input.plan, workingMemory: {}, result: {}, error: null, iteration: 0, replanCount: 0, retryOfMissionId: input.retryOfMissionId ?? null,
     parentMissionId: input.parentMissionId ?? null, rootMissionId: input.rootMissionId ?? null, continuationDepth: input.continuationDepth ?? 0,
-    maximumContinuations: input.maximumContinuations ?? 0, autoContinue: input.autoContinue ?? false,
+    maximumContinuations: input.maximumContinuations ?? 0, autoContinue: input.autoContinue ?? false, directorTickId: input.directorTickId ?? null,
     targetAccountId, provider: input.provider, model: input.model,
     plannerMode: input.plannerMode ?? "AI", plannerFallbackReason: input.plannerFallbackReason ?? null,
     currentStep: initialStatus === "ACTIVE" || initialStatus === "RUNNING" ? planSteps[0]?.title : "Plan ready for review", progress: 0,

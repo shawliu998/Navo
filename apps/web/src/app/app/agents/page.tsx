@@ -1,12 +1,25 @@
 import Link from "next/link";
-import { Activity, Bot, CheckCircle2, Cpu, Target } from "lucide-react";
-import { DEMO_WORKSPACE_ID, getMission, getMissions } from "@navo/db/queries";
+import { Activity, Bot, CheckCircle2, Clock3, Cpu, Target } from "lucide-react";
+import { DEMO_WORKSPACE_ID, getAgentStatus, getMission, getMissions } from "@navo/db/queries";
 import { Badge, MetricCard, PageHeader, StatusBadge } from "@navo/ui";
 
 export const metadata = { title: "Capabilities" };
 
+function formatDate(value: Date | null | undefined) {
+  return value ? value.toLocaleString() : "Not scheduled";
+}
+
+function directorDecision(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const decision = value as { action?: unknown; reason?: unknown };
+  return {
+    action: typeof decision.action === "string" ? decision.action.replaceAll("_", " ") : "No decision yet",
+    reason: typeof decision.reason === "string" ? decision.reason : null,
+  };
+}
+
 export default async function CapabilitiesPage() {
-  const missions = await getMissions(DEMO_WORKSPACE_ID);
+  const [missions, agent] = await Promise.all([getMissions(DEMO_WORKSPACE_ID), getAgentStatus(DEMO_WORKSPACE_ID)]);
   const details = await Promise.all(missions.slice(0, 30).map((mission) => getMission(DEMO_WORKSPACE_ID, mission.id)));
   const observed = new Map<string, { label: string; attempts: number; completed: number; failed: number; skipped: number; providers: Set<string>; lastMissionId: string }>();
   for (const detail of details) {
@@ -27,6 +40,8 @@ export default async function CapabilitiesPage() {
   const attempts = items.reduce((sum, [, item]) => sum + item.attempts, 0);
   const completed = items.reduce((sum, [, item]) => sum + item.completed, 0);
   const missionTypes = new Set(missions.map((mission) => mission.type)).size;
+  const profile = agent.profile;
+  const decision = directorDecision(profile?.lastDirectorDecision);
 
   return <div className="page">
     <PageHeader eyebrow="MISSION RUNTIME" title="Capabilities" description="Capabilities observed from immutable Mission plans and their registered execution steps. Legacy Play node runs are intentionally excluded." actions={<Link className="button button-primary" href="/app/missions/new"><Target size={15}/>Create mission</Link>}/>
@@ -35,6 +50,18 @@ export default async function CapabilitiesPage() {
       <MetricCard label="Executed steps" value={attempts} helper="Completed, failed or skipped" icon={<Activity size={14}/>}/>
       <MetricCard label="Completion rate" value={`${Math.round(completed / Math.max(attempts, 1) * 100)}%`} helper={`${completed} completed`} icon={<CheckCircle2 size={14}/>}/>
       <MetricCard label="Mission types" value={missionTypes} helper="Observed runtime scopes" icon={<Target size={14}/>}/>
+    </section>
+    <section className="card" style={{ marginBottom: 14 }}>
+      <div className="card-header">
+        <div><h2>Agent Director</h2><span className="card-subtitle">Autonomous root-Mission scheduling and guardrails</span></div>
+        <Badge tone={profile?.directorEnabled ? "success" : "neutral"}>{profile?.directorEnabled ? "Enabled" : "Disabled"}</Badge>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+        <div className="guardrail-item"><small>Last decision</small><strong style={{ textTransform: "capitalize" }}>{decision?.action ?? "No decision yet"}</strong><span className="muted">{decision?.reason ?? "The Director has not evaluated this workspace."}</span></div>
+        <div className="guardrail-item"><small>Next tick</small><strong>{formatDate(profile?.nextDirectorTickAt)}</strong><span className="muted"><Clock3 size={12} /> Scheduled by the worker</span></div>
+        <div className="guardrail-item"><small>Interval / cooldown</small><strong>{profile?.directorIntervalMinutes ?? 15}m / {profile?.directorCooldownMinutes ?? 60}m</strong><span className="muted">Checks / new-root Mission pause</span></div>
+        <div className="guardrail-item"><small>Daily limit</small><strong>{profile?.directorDailyMissionLimit ?? 3} root Missions</strong><span className="muted">Max {profile?.directorMaxActiveMissions ?? 1} active at once</span></div>
+      </div>
     </section>
     {items.length ? <div className="integration-grid">{items.map(([id, item]) => <article className="integration-card" key={id}>
       <div className="integration-icon"><Cpu size={18}/></div>
