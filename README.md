@@ -1,15 +1,21 @@
 # Navo
 
-Navo is an AI account intelligence and outbound orchestration workspace for industrial exporters. It connects evidence-backed account research, qualification, controlled outreach and human approval with reply intelligence, account memory, next-best-action tasks and a lightweight CRM Mirror.
+Navo is an AI Sales Agent Workspace for industrial exporters. It connects seller knowledge, evidence-backed account research, deterministic qualification and approval-ready outreach drafts with reply intelligence, account memory, next-best-action tasks and a lightweight CRM Mirror.
 
 ## MVP flow
 
 ```text
-Accounts → Signals → Research → Qualification → Contacts → Plays
-→ Message Generation → Approval → Sequence → EmailSink
+Knowledge → Mission → Account target → Bounded website research
+→ Literal Evidence + Signals → Deterministic Qualification
+→ DRAFT Outreach → Operator review (no sending Approval) → EmailSink simulation
 → Reply Classification → Conversation Summary → Account Memory
 → Next Best Action → Manual Task → CRM Mirror → Analytics
 ```
+
+A Mission is planned by the web layer and consumed by the BullMQ worker. The worker loads
+seller knowledge and ICP constraints, researches a bounded account website, persists literal
+source evidence, extracts evidence-linked signals, applies deterministic qualification rules,
+and saves an outreach message with `DRAFT` status.
 
 The MVP deliberately stops short of becoming a complete CRM, customer-support product, WebChat platform or unrestricted automated sender.
 
@@ -23,19 +29,43 @@ The MVP deliberately stops short of becoming a complete CRM, customer-support pr
 
 ## AI and email safety
 
-DeepSeek is the default real AI provider. Configure `DEEPSEEK_API_KEY` only in a server-side local environment file; never commit it or expose it to browser code. Tests and the seeded demo use deterministic `MockAIProvider` behavior and do not call a paid API.
+`MockAIProvider` is the default and recommended deterministic mode for local development,
+seeded data and tests. The local demo does not need a network call, paid credential or
+DeepSeek account. `DeepSeekAIProvider` is enabled only when `AI_PROVIDER=deepseek` is set
+explicitly and a server-only `DEEPSEEK_API_KEY` is configured. The repository does not claim
+that paid DeepSeek calls have been verified.
 
-Outbound email is EmailSink-only in this MVP. Simulated reply, bounce, unsubscribe and complaint events exercise the downstream workflow without sending real mail.
+Website content is untrusted input. Research applies SSRF, response-size, page-size,
+redirect and bounded-page limits; evidence quotes must be literal excerpts from fetched
+source text and source URLs must be among the fetched pages. Generated outreach is saved as
+`DRAFT` only. The MVP does not create a sending Approval, does not support real email
+sending, and is not production-ready. EmailSink reply, bounce, unsubscribe and complaint
+events are simulations for exercising downstream workflows.
 
 ## Local setup
+
+The following commands target a disposable local demo PostgreSQL database. `db:migrate` and
+`db:seed` modify that database; do not run them against data that must be preserved.
 
 ```bash
 pnpm install
 docker compose up -d
 pnpm db:migrate
 pnpm db:seed
+```
+
+Then run the web app and worker in separate terminals:
+
+```bash
 pnpm dev
 ```
+
+```bash
+pnpm --filter @navo/worker dev
+```
+
+Use `AI_PROVIDER=mock`,
+`EMAIL_PROVIDER=sink` and `EMAIL_TEST_MODE=true` from `.env.example` for the local demo.
 
 ### Existing ExportPlay development databases
 
@@ -78,5 +108,10 @@ pnpm test
 pnpm build
 pnpm e2e
 ```
+
+The full validation sequence assumes PostgreSQL and Redis are running, the database has
+been migrated and seeded, the web server is available on port 3100, and the worker is
+running for Mission execution. Playwright writes ignored reports/screenshots on failure;
+review `git status` before committing.
 
 See [PLAN.md](./PLAN.md), [ARCHITECTURE.md](./ARCHITECTURE.md) and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for delivery scope, system boundaries and dependency notices.

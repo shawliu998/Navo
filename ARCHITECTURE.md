@@ -4,25 +4,32 @@
 
 Navo is a TypeScript monorepo with a Next.js application, a separately runnable worker, PostgreSQL as the source of truth, Redis/BullMQ for queue transport, and small domain packages that do not depend on third-party SDK types.
 
-The web layer handles authentication, workspace-scoped resource APIs, interactive product screens and short transactions. Long-running research and workflow execution belong to the worker. The MVP can execute the same domain services synchronously for deterministic test runs while preserving the queue boundary used by production-style execution.
+The web layer handles authentication, workspace-scoped resource APIs, interactive product
+screens and short transactions. Long-running Mission research and workflow execution belong
+to the BullMQ worker. The worker consumes queue jobs containing IDs only (`workspaceId` and
+`missionId`), reloads all state from PostgreSQL, and persists progress and results there.
+Deterministic direct execution is retained for integration tests; this is a test seam, not a
+production-readiness claim.
 
 ## Product flow
 
-The primary outbound flow is:
+The primary AI Sales Agent flow is:
 
 ```text
 Knowledge + ICP
-→ Account import and deduplication
-→ Research
-→ Evidence + Inference
-→ Qualification
-→ Contact and Persona
-→ Play and Message Generation
-→ Policy Check
-→ Human Approval
-→ Sequence
-→ EmailSink
+→ Mission plan
+→ Bounded account target
+→ Safe website research
+→ Literal Evidence + Signals
+→ Deterministic Qualification
+→ DRAFT Outreach
+→ Operator review (Mission runner creates no sending Approval)
+→ EmailSink simulation
 ```
+
+The current Mission runner persists seller knowledge usage, website fetch events, evidence,
+signals, qualification results, plan-step progress and the final `DRAFT` message. It does
+not create a sending Approval or send real email.
 
 The reply intelligence flow is:
 
@@ -46,6 +53,7 @@ Reply handling is deterministic and idempotent for the same simulated event. A r
 - Server routes derive workspace membership and role from the server session and never trust a client-supplied workspace alone.
 - AI providers only return schema-validated structured output. They cannot publish Plays, approve actions, send messages, modify CRM state directly or bypass policy.
 - Evidence, inference, decisions, conversation summaries and memory facts remain distinct records with source references and provenance.
+- Website pages are untrusted input. Research enforces SSRF protections, bounded response/page sizes, redirect limits and a bounded page scope; generated quotes must match fetched source text and URLs.
 - Sending passes RBAC, suppression, historical-send, approved-claim, evidence, approval, idempotency, recipient and test-mode policies.
 - Unsubscribe, bounce and spam-complaint events update suppression state and prevent later sends.
 - Secrets remain server-only. Run inputs/outputs are recursively redacted before persistence, and API keys are never sent to the browser, logs, traces or database.
@@ -64,9 +72,26 @@ Next-action proposals are recommendations, not autonomous customer-facing action
 
 ## AI provider boundary
 
-Domain code consumes an `AIProvider.generateStructured()` contract. `DeepSeekAIProvider` is the default real provider, uses DeepSeek's OpenAI-compatible server-side API, validates output through Zod and performs bounded retries. `MockAIProvider` is deterministic and powers seed/demo/tests, ensuring every main workflow remains usable without a network call or paid credential. Provider SDK and HTTP shapes never escape the adapter.
+Domain code consumes an `AIProvider.generateStructured()` contract. `MockAIProvider` is the
+default deterministic provider for local, seed and test execution. `DeepSeekAIProvider` is
+optional and is selected only by explicit `AI_PROVIDER=deepseek` plus a server-only
+`DEEPSEEK_API_KEY`; it validates output through Zod and performs bounded retries. Provider
+SDK and HTTP shapes never escape the adapter. No paid-provider call is asserted by the
+repository's local demo or automated tests.
 
 Real DeepSeek calls require a server-only `DEEPSEEK_API_KEY`; the key must never be printed, persisted or exposed through client environment variables. Automated tests do not make real DeepSeek requests.
+
+## Persistence, queue and workspace isolation
+
+PostgreSQL is the source of truth for workspace, seller knowledge, Missions, plans, targets,
+research evidence, qualification results, messages, runs and audit records. Redis/BullMQ is
+transport, not durable business state. Queue payloads carry IDs only; the worker rehydrates
+records using explicit `workspaceId` predicates before reading or writing.
+
+Every domain record carries `workspaceId`, and repository methods require the workspace as an
+explicit argument. Server routes derive session membership and do not trust a client-supplied
+workspace alone. Cross-workspace references are rejected by the domain and persistence
+boundaries.
 
 ## Local infrastructure and delivery safety
 
@@ -79,4 +104,6 @@ explicit dump/restore as documented in the README; retaining the former `DATABAS
 temporarily remains supported during that migration window. The SQL migration history is
 unchanged, so restored databases continue from the same Drizzle migration ledger.
 
-External Gmail, Outlook, HubSpot, Resend, Firecrawl and contact-data integrations remain adapters or placeholders behind explicit interfaces.
+External Gmail, Outlook, HubSpot, Resend, Firecrawl and contact-data integrations remain
+adapters or placeholders behind explicit interfaces. This MVP has no real-mail sender and is
+not a production-ready outbound system.
