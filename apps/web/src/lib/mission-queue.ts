@@ -22,6 +22,7 @@ async function enqueue(jobName: string, payload: Record<string, string>, jobId: 
 export const enqueueMission = (payload: { workspaceId: string; missionId: string }) => enqueue(missionJobName, payload, `mission-${payload.missionId}`);
 export const enqueueMissionContinuation = (payload: { workspaceId: string; missionId: string }) => enqueue("mission.continue", payload, `mission-continuation-${payload.missionId}`);
 export const enqueueReplyFollowUp = (payload: { workspaceId: string; inboundMessageId: string }) => enqueue("reply.follow-up", payload, `reply-follow-up-${payload.inboundMessageId}`);
+export const enqueueResendInbound = (payload: { emailId: string }) => enqueue("resend.inbound", payload, `resend-inbound-${payload.emailId}`);
 export const enqueueAgentTick = (workspaceId: string, options: { trigger?: string; resourceId?: string; jobId?: string } = {}) => enqueue(
   "agent.tick",
   { workspaceId, trigger: options.trigger ?? "MANUAL", ...(options.resourceId ? { resourceId: options.resourceId } : {}) },

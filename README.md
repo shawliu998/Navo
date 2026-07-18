@@ -48,6 +48,19 @@ source-message memory and writes a deterministic completion summary. It never re
 research and never sends the draft. Queue submission failures leave the same Mission `READY` for
 Director retry rather than creating a duplicate.
 
+Resend inbound webhooks are supported at `POST /api/webhooks/resend/inbound`. The route verifies
+the Svix signature using `RESEND_WEBHOOK_SECRET`, ignores non-`email.received` events, and queues
+a worker job that fetches the full email from Resend with `RESEND_API_KEY`. The worker matches
+the original outbound Navo message via `in-reply-to`, `references`, or `x-navo-message-id`,
+persists the reply idempotently through the same reply loop as EmailSink, and creates exactly
+one `REPLY_FOLLOW_UP` mission. Duplicate webhook deliveries do not create duplicate inbound
+messages, tasks, or missions.
+
+For real reply matching, the outbound sender must persist the email `Message-ID` that recipients
+will return in `In-Reply-To`/`References` as `messages.providerMessageId`, or arrange for the reply
+to carry Navo's internal message UUID in `X-Navo-Message-Id`. The current MVP still sends no real
+outbound email; this inbound path activates once a compatible sender or Reply-To token is wired.
+
 Registered tools are Load Seller Knowledge, Select Target Accounts, Create Target Account,
 Website Fetch, Research Company, Extract Signals, Qualify Account, Rank Accounts, Generate
 Outreach, Create Task, Update Memory and Summarize Mission.

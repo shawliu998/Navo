@@ -9,6 +9,7 @@ import { executeMission } from "./mission-runner";
 import { scheduleMissionContinuation } from "./mission-continuation";
 import { runAgentDirectorTick } from "./agent-director";
 import { createReplyFollowUpMission } from "./reply-follow-up";
+import { processResendInboundEmail } from "./resend-inbound";
 
 config({ path: resolve(process.cwd(), "../../.env.local"), quiet: true });
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:56379";
@@ -33,6 +34,11 @@ const worker = new Worker("navo-runs", async (job) => {
     const { workspaceId, inboundMessageId } = job.data as { workspaceId?: string; inboundMessageId?: string };
     if (!workspaceId || !inboundMessageId) throw new Error("reply.follow-up jobs require workspaceId and inboundMessageId.");
     return createReplyFollowUpMission({ workspaceId, inboundMessageId }, { enqueueMission });
+  }
+  if (job.name === "resend.inbound") {
+    const { emailId } = job.data as { emailId?: string };
+    if (!emailId) throw new Error("resend.inbound jobs require emailId.");
+    return processResendInboundEmail({ emailId }, { enqueueMission, workspaceId: DEMO_WORKSPACE_ID });
   }
   if (job.name === "agent.tick") {
     const { workspaceId, trigger, resourceId } = job.data as { workspaceId?: string; trigger?: string; resourceId?: string };
