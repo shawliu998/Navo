@@ -50,7 +50,7 @@ const validPlan = {
 describe("structured AI contracts", () => {
   it("enforces the exact MissionPlan shape, mission types, and step types", () => {
     expect(missionTypeSchema.options).toEqual(["OPPORTUNITY_DISCOVERY", "ACCOUNT_RESEARCH", "ACCOUNT_QUALIFICATION", "OUTREACH_PREPARATION", "REPLY_FOLLOW_UP"]);
-    expect(missionStepTypeSchema.options).toEqual(["LOAD_SELLER_KNOWLEDGE", "SELECT_TARGET_ACCOUNTS", "CREATE_TARGET_ACCOUNT", "FETCH_WEBSITE", "RESEARCH_COMPANY", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "RANK_ACCOUNTS", "DISCOVER_CONTACTS", "GENERATE_OUTREACH", "CREATE_TASK", "UPDATE_MEMORY", "SUMMARIZE_MISSION"]);
+    expect(missionStepTypeSchema.options).toEqual(["LOAD_SELLER_KNOWLEDGE", "SELECT_TARGET_ACCOUNTS", "CREATE_TARGET_ACCOUNT", "FETCH_WEBSITE", "RESEARCH_COMPANY", "EXTRACT_SIGNALS", "QUALIFY_ACCOUNT", "RANK_ACCOUNTS", "DISCOVER_CONTACTS", "GENERATE_OUTREACH", "LOAD_REPLY_CONTEXT", "GENERATE_REPLY_DRAFT", "CREATE_TASK", "UPDATE_MEMORY", "SUMMARIZE_MISSION"]);
     expect(missionPlanSchema.safeParse(validPlan).success).toBe(true);
     expect(missionPlanSchema.safeParse({ ...validPlan, missionType: "EXPANSION_SIGNAL_OUTREACH" }).success).toBe(false);
     expect(missionPlanSchema.safeParse({ ...validPlan, steps: [{ ...validPlan.steps[0], type: "SEND_EMAIL" }] }).success).toBe(false);

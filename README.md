@@ -40,6 +40,14 @@ page. Account imports, inbound replies, new follow-up tasks and settled Missions
 request and advance the next Director tick; the one-minute scheduler remains the fallback if the
 immediate Redis enqueue is unavailable.
 
+Inbound EmailSink replies enter a dedicated event-driven loop instead of a generic discovery
+Mission. A unique `(workspace, inbound message)` key creates at most one `REPLY_FOLLOW_UP`
+Mission. Its fixed bounded plan loads only that persisted reply, asks the configured provider for
+one approval-required reply DRAFT, reuses or creates the internal next-action task, links
+source-message memory and writes a deterministic completion summary. It never re-runs website
+research and never sends the draft. Queue submission failures leave the same Mission `READY` for
+Director retry rather than creating a duplicate.
+
 Registered tools are Load Seller Knowledge, Select Target Accounts, Create Target Account,
 Website Fetch, Research Company, Extract Signals, Qualify Account, Rank Accounts, Generate
 Outreach, Create Task, Update Memory and Summarize Mission.

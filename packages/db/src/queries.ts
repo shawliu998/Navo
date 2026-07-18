@@ -241,6 +241,7 @@ export type CreateMissionInput = {
   maximumContinuations?: number;
   autoContinue?: boolean;
   directorTickId?: string;
+  replySourceMessageId?: string;
 };
 
 export async function getAgentStatus(workspaceId: string) {
@@ -361,6 +362,7 @@ async function createMissionInTransaction(tx: MissionTransaction, workspaceId: s
     plan: input.plan, workingMemory: {}, result: {}, error: null, iteration: 0, replanCount: 0, retryOfMissionId: input.retryOfMissionId ?? null,
     parentMissionId: input.parentMissionId ?? null, rootMissionId: input.rootMissionId ?? null, continuationDepth: input.continuationDepth ?? 0,
     maximumContinuations: input.maximumContinuations ?? 0, autoContinue: input.autoContinue ?? false, directorTickId: input.directorTickId ?? null,
+    replySourceMessageId: input.replySourceMessageId ?? null,
     targetAccountId, provider: input.provider, model: input.model,
     plannerMode: input.plannerMode ?? "AI", plannerFallbackReason: input.plannerFallbackReason ?? null,
     currentStep: initialStatus === "ACTIVE" || initialStatus === "RUNNING" ? planSteps[0]?.title : "Plan ready for review", progress: 0,
@@ -538,6 +540,18 @@ export async function failMissionQueue(workspaceId: string, userId: string, miss
     await tx.update(agentPlans).set({ status: "FAILED", updatedAt: changedAt }).where(and(eq(agentPlans.workspaceId, workspaceId), eq(agentPlans.missionId, missionId)));
     await tx.update(agentMissionTargets).set({ status: "FAILED", currentStep: "Queue submission failed", updatedAt: changedAt }).where(and(eq(agentMissionTargets.workspaceId, workspaceId), eq(agentMissionTargets.missionId, missionId)));
     await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId, accountId: mission.targetAccountId, type: "MISSION_FAILED", title: "Mission could not be queued.", description: message, severity: "ERROR", status: "FAILED", occurredAt: changedAt, metadata: { stage: "QUEUE" } });
+    return mission;
+  });
+}
+
+export async function deferMissionQueue(workspaceId: string, userId: string, missionId: string, message: string) {
+  const changedAt = new Date();
+  return db.transaction(async (tx) => {
+    const [mission] = await tx.update(agentMissions).set({ status: "READY", error: message, currentStep: "Queue unavailable; ready to retry", queuedAt: null, updatedAt: changedAt }).where(and(eq(agentMissions.workspaceId, workspaceId), eq(agentMissions.id, missionId), eq(agentMissions.status, "RUNNING"))).returning();
+    if (!mission) return null;
+    await tx.update(agentPlans).set({ status: "DRAFT", updatedAt: changedAt }).where(and(eq(agentPlans.workspaceId, workspaceId), eq(agentPlans.missionId, missionId)));
+    await tx.update(agentMissionTargets).set({ status: "PENDING", currentStep: "Waiting for queue retry", updatedAt: changedAt }).where(and(eq(agentMissionTargets.workspaceId, workspaceId), eq(agentMissionTargets.missionId, missionId)));
+    await tx.insert(agentEvents).values({ workspaceId, createdBy: userId, missionId, accountId: mission.targetAccountId, type: "MISSION_QUEUE_DEFERRED", title: "Mission queue submission was deferred for retry.", description: message, severity: "WARNING", occurredAt: changedAt, metadata: { stage: "QUEUE", retryable: true } });
     return mission;
   });
 }

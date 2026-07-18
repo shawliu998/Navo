@@ -1,18 +1,18 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   accounts, agentEvents, agentMissions, agentMissionTargets, agentPlans, agentPlanSteps, approvedClaims, contacts, db,
-  evidence, icpProfiles, memoryFacts, messages, prepareMissionStart, products, qualificationResults, signals, tasks,
+  evidence, icpProfiles, memoryFacts, messages, nextActionProposals, prepareMissionStart, products, qualificationResults, signals, tasks,
   toolCalls, workspaces,
 } from "@navo/db";
 import {
   accountRankingOutputSchema, buildOperationInstruction, companyResearchOutputSchema, contactDiscoveryOutputSchema, DeepSeekAIProvider,
   emptyMissionWorkingMemory, getAIProvider, missionPlanSchema, missionResultSchema,
   missionWorkingMemorySchema, MockAIProvider, outreachDraftSchema, prohibitedOutreachClaims,
-  qualificationOutputSchema, salesSignalOutputSchema, validateOutreachDraft,
+  qualificationOutputSchema, replyDraftOutputSchema, salesSignalOutputSchema, validateOutreachDraft,
   type AIProvider, type CompanyResearchOutput, type ContactDiscoveryOutput, type MissionPlan, type MissionResult, type MissionStepType,
   type MissionWorkingMemory, type OutreachDraft, type SalesSignalOutput,
 } from "@navo/agents";
-import { qualifyAccount } from "@navo/domain";
+import { deriveMemoryFacts, proposeNextBestAction, qualifyAccount, replyClassificationSchema, type NextBestAction } from "@navo/domain";
 import { checkMissionStopConditions, decideNextMissionStep, decideQualificationCheckpoint, decideRankingCheckpoint, decideWebsiteCheckpoint } from "@navo/workflows/mission-executor";
 import { AgentToolRegistry, toolRecordSchema } from "@navo/workflows/tools";
 import { fetchWebsiteResearch, type WebsiteResearchData, type WebsiteResearchInput, type WebsiteResearchOutput } from "@navo/workflows/website-research";
@@ -34,18 +34,26 @@ type AccountArtifact = {
   account: AccountRow; website?: WebsiteResearchData; research?: CompanyResearchOutput; evidenceIds: string[];
   signals: SalesSignalOutput["signals"]; signalIds: string[]; qualification?: QualificationArtifact; contacts: ContactRow[]; bestContact?: ContactRow;
 };
+type ReplyRuntimeContext = {
+  source: typeof messages.$inferSelect;
+  account: AccountRow;
+  contact?: ContactRow;
+  classification: ReturnType<typeof replyClassificationSchema.parse>;
+  action: NextBestAction;
+};
 type PersistedResult = Partial<MissionResult> & {
   websiteByAccount: Record<string, WebsiteResearchData>;
   researchByAccount: Record<string, CompanyResearchOutput>;
   ranking?: { rankedAccounts: Array<{ accountId: string; rank: number; reason: string }>; bestAccountId: string; recommendation: string };
   evidenceIds: string[]; signalIds: string[]; qualificationResultIds: string[]; contactIds: string[]; draftMessageIds: string[]; taskIds: string[]; memoryFactIds: string[];
   research?: CompanyResearchOutput; qualification?: QualificationArtifact; contactDiscovery?: ContactDiscoveryOutput; outreach?: OutreachDraft; messageId?: string;
+  replyDraft?: { subject: string; body: string; classification: string; requiresApproval: boolean };
 };
 type Runtime = {
   mission: typeof agentMissions.$inferSelect; userId: string; ai: AIProvider; now: () => Date;
   fetchResearch: (input: WebsiteResearchInput) => Promise<WebsiteResearchOutput>; plan: MissionPlan;
   memory: MissionWorkingMemory; result: PersistedResult; sellerKnowledge?: SellerKnowledge; icp?: typeof icpProfiles.$inferSelect;
-  artifacts: Map<string, AccountArtifact>;
+  artifacts: Map<string, AccountArtifact>; replyContext?: ReplyRuntimeContext;
 };
 
 const messageFrom = (cause: unknown) => cause instanceof Error ? cause.message : "Unknown mission execution error";
@@ -235,6 +243,31 @@ async function recoverInterruptedPlan(input: MissionRunInput, runtime: Runtime) 
   }
 }
 
+async function loadReplyRuntimeContext(input: MissionRunInput, runtime: Runtime) {
+  const sourceMessageId = runtime.mission.replySourceMessageId ?? runtime.plan.replyContext?.sourceMessageId;
+  if (!sourceMessageId) throw new Error("REPLY_SOURCE_MESSAGE_REQUIRED");
+  const [source] = await db.select().from(messages).where(and(
+    eq(messages.workspaceId, input.workspaceId),
+    eq(messages.id, sourceMessageId),
+  )).limit(1);
+  if (!source || source.direction !== "INBOUND") throw new Error("REPLY_SOURCE_MESSAGE_INVALID");
+  if (runtime.plan.replyContext?.conversationId !== null && runtime.plan.replyContext?.conversationId !== source.conversationId) throw new Error("REPLY_CONVERSATION_CONTEXT_MISMATCH");
+  const [[account], [contact]] = await Promise.all([
+    db.select().from(accounts).where(and(eq(accounts.workspaceId, input.workspaceId), eq(accounts.id, source.accountId))).limit(1),
+    source.contactId ? db.select().from(contacts).where(and(eq(contacts.workspaceId, input.workspaceId), eq(contacts.id, source.contactId))).limit(1) : Promise.resolve([]),
+  ]);
+  if (!account) throw new Error("REPLY_ACCOUNT_NOT_FOUND");
+  const parsedClassification = replyClassificationSchema.safeParse(source.replyClassification ?? "UNKNOWN");
+  const classification = parsedClassification.success ? parsedClassification.data : "UNKNOWN";
+  runtime.replyContext = { source, account, contact, classification, action: proposeNextBestAction({ messageId: source.id, classification }) };
+  runtime.artifacts.set(account.id, runtime.artifacts.get(account.id) ?? { account, evidenceIds: [], signals: [], signalIds: [], contacts: contact ? [contact] : [] });
+  runtime.memory.selectedAccountIds = [account.id];
+  runtime.memory.bestAccountId = account.id;
+  runtime.memory.bestContactId = contact?.id ?? null;
+  runtime.result.bestAccountId = account.id;
+  runtime.result.bestContactId = contact?.id ?? null;
+}
+
 async function hydrateRuntime(input: MissionRunInput, runtime: Runtime) {
   const [[workspace], [product], [icp], claims, targetRows] = await Promise.all([
     db.select().from(workspaces).where(eq(workspaces.id, input.workspaceId)).limit(1),
@@ -309,6 +342,7 @@ async function hydrateRuntime(input: MissionRunInput, runtime: Runtime) {
   if (!runtime.memory.bestContactId) runtime.memory.bestContactId = contactRows.find((row) => row.id === persistedBestContactId)?.id ?? contactRows[0]?.id ?? null;
   if (!runtime.result.bestContactId) runtime.result.bestContactId = runtime.memory.bestContactId;
   if (!runtime.memory.bestAccountId && runtime.mission.targetAccountId && runtime.artifacts.get(runtime.mission.targetAccountId)?.qualification) runtime.memory.bestAccountId = runtime.mission.targetAccountId;
+  if (runtime.mission.type === "REPLY_FOLLOW_UP") await loadReplyRuntimeContext(input, runtime);
 }
 
 async function withLocalRetry<T>(operation: string, run: () => Promise<T>): Promise<T> {
@@ -342,6 +376,56 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
     runtime.memory.sellerKnowledgeLoaded = true;
     runtime.memory.lastObservation = `Loaded ${runtime.sellerKnowledge.products.length} product and ${claims.length} approved claims for ${workspace.name}.`;
     return { ...runtime.sellerKnowledge, approvedClaimCount: claims.length };
+  });
+
+  register("LOAD_REPLY_CONTEXT", "Load Reply Context", "Load one persisted inbound reply and its account context.", async () => {
+    if (runtime.mission.type !== "REPLY_FOLLOW_UP" || !runtime.replyContext) throw new Error("REPLY_CONTEXT_UNAVAILABLE");
+    const { source, account, contact, classification, action } = runtime.replyContext;
+    runtime.memory.lastObservation = `Loaded ${classification.toLowerCase()} inbound reply ${source.id} for ${account.name}.`;
+    await db.update(agentMissionTargets).set({ status: "SELECTED", keySignal: `${classification} reply`, whySelected: "This account sent the source inbound reply.", currentStep: "Inbound reply context loaded", suggestedAction: action.title, updatedAt: runtime.now() }).where(and(eq(agentMissionTargets.workspaceId, input.workspaceId), eq(agentMissionTargets.missionId, input.missionId), eq(agentMissionTargets.accountId, account.id)));
+    return { sourceMessageId: source.id, conversationId: source.conversationId, accountId: account.id, contactId: contact?.id ?? null, subject: source.subject, body: source.body, classification, proposedAction: action };
+  });
+
+  register("GENERATE_REPLY_DRAFT", "Generate Reply Draft", "Prepare a source-linked reply DRAFT without sending it.", async () => {
+    if (runtime.mission.type !== "REPLY_FOLLOW_UP" || !runtime.replyContext) throw new Error("REPLY_CONTEXT_UNAVAILABLE");
+    const { source, account, contact, classification, action } = runtime.replyContext;
+    const responseAllowed = ["POSITIVE", "QUESTION", "REFERRAL", "NOT_NOW"].includes(classification);
+    if (!responseAllowed) {
+      runtime.memory.lastObservation = `${classification} requires ${action.title.toLowerCase()}, not a reply draft.`;
+      return { sourceMessageId: source.id, draftCreated: false, reason: runtime.memory.lastObservation };
+    }
+    const [claims, accountEvidence] = await Promise.all([
+      db.select({ claim: approvedClaims.claim }).from(approvedClaims).where(and(eq(approvedClaims.workspaceId, input.workspaceId), eq(approvedClaims.status, "APPROVED"))),
+      db.select({ id: evidence.id, title: evidence.title, summary: evidence.summary, quote: evidence.quote, sourceUrl: evidence.sourceUrl }).from(evidence).where(and(eq(evidence.workspaceId, input.workspaceId), eq(evidence.accountId, account.id))).orderBy(desc(evidence.createdAt)).limit(10),
+    ]);
+    const approved = new Set(claims.map((item) => item.claim));
+    const allowedEvidenceIds = new Set(accountEvidence.map((item) => item.id));
+    const generated = await withLocalRetry("GENERATE_REPLY_DRAFT", () => runtime.ai.generateStructured({
+      operation: "reply-draft",
+      systemInstruction: "Prepare a concise English email reply DRAFT. Answer only with supplied approved claims and evidence. If evidence is insufficient, acknowledge the question and assign a human follow-up instead of inventing an answer. Never send a message. requiresApproval must be true.",
+      input: { sourceMessage: { id: source.id, subject: source.subject, body: source.body, classification }, account: { id: account.id, name: account.name }, contact: contact ? { id: contact.id, name: contact.name, title: contact.title } : null, nextAction: action, approvedClaims: [...approved], evidence: accountEvidence },
+      outputSchema: replyDraftOutputSchema,
+      promptVersion: "reply-draft-v2",
+      temperature: 0.1,
+      maxTokens: 900,
+    }));
+    if (!generated.data.requiresApproval) throw new Error("REPLY_DRAFT_APPROVAL_REQUIRED");
+    const unsupportedClaim = generated.data.claimsUsed.find((claim) => !approved.has(claim));
+    if (unsupportedClaim) throw new Error(`REPLY_DRAFT_UNAPPROVED_CLAIM: ${unsupportedClaim}`);
+    const evidenceIds = generated.data.evidenceIds.filter((id) => allowedEvidenceIds.has(id));
+    const prohibitedClaim = prohibitedOutreachClaims.find((claim) => generated.data.body.toLowerCase().includes(claim));
+    if (prohibitedClaim) throw new Error(`REPLY_DRAFT_PROHIBITED_CLAIM: ${prohibitedClaim}`);
+    const idempotencyKey = `reply-mission-draft-${input.missionId}`;
+    const [created] = await db.insert(messages).values({ workspaceId: input.workspaceId, createdBy: runtime.userId, conversationId: source.conversationId, accountId: account.id, missionId: input.missionId, contactId: contact?.id, inReplyToMessageId: source.id, direction: "OUTBOUND", channel: source.channel, subject: generated.data.subject, body: generated.data.body, status: "DRAFT", evidenceIds, claimsUsed: generated.data.claimsUsed, idempotencyKey }).onConflictDoNothing().returning({ id: messages.id });
+    const [existing] = created ? [] : await db.select({ id: messages.id }).from(messages).where(and(eq(messages.workspaceId, input.workspaceId), eq(messages.idempotencyKey, idempotencyKey))).limit(1);
+    const draft = created ?? existing;
+    if (!draft) throw new Error("REPLY_DRAFT_PERSIST_FAILED");
+    runtime.result.messageId = draft.id;
+    runtime.result.draftMessageIds = unique([...runtime.result.draftMessageIds, draft.id]);
+    runtime.result.replyDraft = { subject: generated.data.subject, body: generated.data.body, classification, requiresApproval: true };
+    runtime.memory.lastObservation = `Prepared a reply DRAFT for ${contact?.name ?? account.name}; no message was sent.`;
+    await db.update(agentMissionTargets).set({ messageId: draft.id, currentStep: "Reply DRAFT saved", updatedAt: runtime.now() }).where(and(eq(agentMissionTargets.workspaceId, input.workspaceId), eq(agentMissionTargets.missionId, input.missionId), eq(agentMissionTargets.accountId, account.id)));
+    return { messageId: draft.id, status: "DRAFT", sourceMessageId: source.id, classification, requiresApproval: true };
   });
 
   register("SELECT_TARGET_ACCOUNTS", "Select Target Accounts", "Select matching workspace accounts.", async () => {
@@ -648,6 +732,25 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
   });
 
   register("CREATE_TASK", "Create Task", "Create an internal next-step task.", async () => {
+    if (runtime.mission.type === "REPLY_FOLLOW_UP") {
+      if (!runtime.replyContext) throw new Error("REPLY_CONTEXT_UNAVAILABLE");
+      const { source, account, contact, action } = runtime.replyContext;
+      const [proposal] = await db.select().from(nextActionProposals).where(and(eq(nextActionProposals.workspaceId, input.workspaceId), eq(nextActionProposals.sourceMessageId, source.id))).limit(1);
+      const [missionTask] = await db.select().from(tasks).where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.missionId, input.missionId))).limit(1);
+      const [acceptedTask] = !missionTask && proposal?.acceptedTaskId ? await db.select().from(tasks).where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, proposal.acceptedTaskId))).limit(1) : [];
+      let task = missionTask ?? acceptedTask;
+      if (task && task.missionId === null) {
+        [task] = await db.update(tasks).set({ missionId: input.missionId, updatedAt: runtime.now() }).where(and(eq(tasks.workspaceId, input.workspaceId), eq(tasks.id, task.id))).returning();
+      }
+      if (!task) {
+        [task] = await db.insert(tasks).values({ workspaceId: input.workspaceId, createdBy: runtime.userId, accountId: account.id, missionId: input.missionId, contactId: contact?.id, conversationId: source.conversationId, nextActionProposalId: proposal?.id, title: action.title, description: `${action.description} Source inbound message: ${source.id}. Review any DRAFT before manual follow-up; Navo did not send a message.`, type: action.actionType, priority: action.priority, status: action.actionType === "SUPPRESS_CONTACT" ? "COMPLETED" : "OPEN", dueAt: new Date(runtime.now().getTime() + action.dueInHours * 3_600_000), assigneeName: "Sales Ops", completedAt: action.actionType === "SUPPRESS_CONTACT" ? runtime.now() : null }).returning();
+      }
+      if (!task) throw new Error("REPLY_TASK_PERSIST_FAILED");
+      runtime.result.taskIds = unique([...runtime.result.taskIds, task.id]);
+      runtime.memory.lastObservation = `Linked internal next action: ${task.title}.`;
+      await db.update(agentMissionTargets).set({ taskId: task.id, currentStep: "Reply follow-up task linked", suggestedAction: task.title, updatedAt: runtime.now() }).where(and(eq(agentMissionTargets.workspaceId, input.workspaceId), eq(agentMissionTargets.missionId, input.missionId), eq(agentMissionTargets.accountId, account.id)));
+      return { taskId: task.id, title: task.title, status: task.status, reusedReplyLoopTask: Boolean(acceptedTask) };
+    }
     if (!runtime.memory.bestAccountId || !runtime.result.messageId) throw new Error("DRAFT_REQUIRED_FOR_TASK");
     const artifact = runtime.artifacts.get(runtime.memory.bestAccountId)!;
     const contact = artifact.bestContact;
@@ -663,6 +766,21 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
   });
 
   register("UPDATE_MEMORY", "Update Memory", "Persist sourced account facts from mission results.", async () => {
+    if (runtime.mission.type === "REPLY_FOLLOW_UP") {
+      if (!runtime.replyContext) throw new Error("REPLY_CONTEXT_UNAVAILABLE");
+      const { source, account, contact, classification } = runtime.replyContext;
+      let saved = await db.select({ id: memoryFacts.id }).from(memoryFacts).where(and(eq(memoryFacts.workspaceId, input.workspaceId), eq(memoryFacts.sourceMessageId, source.id)));
+      if (saved.length) {
+        await db.update(memoryFacts).set({ missionId: input.missionId, updatedAt: runtime.now() }).where(and(eq(memoryFacts.workspaceId, input.workspaceId), eq(memoryFacts.sourceMessageId, source.id)));
+      } else {
+        const derived = deriveMemoryFacts({ messageId: source.id, body: source.body, classification, confidence: 0.9, observedAt: (source.receivedAt ?? source.createdAt).toISOString() });
+        const facts = derived.length ? derived : [{ category: "REPLY", key: "reply_context", value: source.body.slice(0, 300), confidence: 0.7, sourceMessageId: source.id, observedAt: (source.receivedAt ?? source.createdAt).toISOString(), derivation: "MISSION_REPLY_FALLBACK_V1" }];
+        saved = await db.insert(memoryFacts).values(facts.map((fact) => ({ workspaceId: input.workspaceId, createdBy: runtime.userId, accountId: account.id, missionId: input.missionId, contactId: contact?.id, conversationId: source.conversationId, category: fact.category, fact: `${fact.key}: ${fact.value}`, confidence: fact.confidence.toFixed(3), sourceType: "MESSAGE", sourceId: source.id, sourceMessageId: source.id, evidenceIds: [], status: "ACTIVE", validFrom: new Date(fact.observedAt) }))).returning({ id: memoryFacts.id });
+      }
+      runtime.result.memoryFactIds = unique([...runtime.result.memoryFactIds, ...saved.map((row) => row.id)]);
+      runtime.memory.lastObservation = `Linked ${saved.length} source-message memory fact(s) for ${account.name}.`;
+      return { accountId: account.id, sourceMessageId: source.id, factsCreatedOrLinked: saved.length, memoryFactIds: saved.map((row) => row.id) };
+    }
     if (!runtime.memory.bestAccountId) {
       runtime.memory.lastObservation = "No suitable account was found, so no account memory fact was written.";
       return { accountId: null, factsCreated: 0, memoryFactIds: [] };
@@ -683,6 +801,30 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
   });
 
   register("SUMMARIZE_MISSION", "Summarize Mission", "Persist the final mission result.", async () => {
+    if (runtime.mission.type === "REPLY_FOLLOW_UP") {
+      if (!runtime.replyContext) throw new Error("REPLY_CONTEXT_UNAVAILABLE");
+      const { source, account, contact, classification, action } = runtime.replyContext;
+      const result = missionResultSchema.parse({
+        outcome: "PARTIAL_RESULTS",
+        decisionSummary: `${classification} inbound reply produced a bounded internal follow-up decision.`,
+        summary: `Navo processed the persisted inbound reply from ${contact?.name ?? account.name}, ${runtime.result.messageId ? "prepared a review-only reply DRAFT, " : "did not create a reply draft, "}linked an internal next-step task and source-message memory, and sent nothing.`,
+        accountsInvestigated: 1,
+        bestAccountId: account.id,
+        bestContactId: contact?.id ?? null,
+        bestAccountReason: "This account authored the source inbound reply.",
+        keySignals: [`${classification}: ${source.body.slice(0, 500)}`],
+        qualificationSummary: `Reply classification: ${classification}. No account re-qualification was run.`,
+        outreachDraftId: runtime.result.messageId ?? null,
+        taskIds: runtime.result.taskIds,
+        memoryFactIds: runtime.result.memoryFactIds,
+        recommendedNextActions: [action.title, runtime.result.messageId ? "Review and approve the reply DRAFT before any manual send." : action.description],
+        plannerMode: runtime.mission.plannerMode,
+        fallbackReason: runtime.mission.plannerFallbackReason,
+      });
+      Object.assign(runtime.result, result);
+      runtime.memory.lastObservation = result.summary;
+      return result;
+    }
     const best = runtime.memory.bestAccountId ? runtime.artifacts.get(runtime.memory.bestAccountId) : undefined;
     const rankingReason = runtime.result.ranking?.rankedAccounts.find((item) => item.accountId === runtime.memory.bestAccountId)?.reason ?? null;
     const generated = await withLocalRetry("MISSION_SUMMARY", () => runtime.ai.generateStructured({ operation: "mission-summary", systemInstruction: buildOperationInstruction("mission-summary", "Summarize persisted artifacts only. State clearly that outreach remains DRAFT."), input: { outcome: runtime.result.outcome ?? (best ? "OPPORTUNITY_FOUND" : "NO_SUITABLE_MATCH"), decisionSummary: runtime.result.decisionSummary ?? runtime.memory.notes.at(-1), accountsInvestigated: runtime.memory.researchedAccountIds.length, bestAccountId: runtime.memory.bestAccountId, bestContactId: runtime.memory.bestContactId, bestContact: best?.bestContact ? { name: best.bestContact.name, title: best.bestContact.title } : null, bestAccountReason: rankingReason, keySignals: best?.signals.map((signal) => signal.summary) ?? [], qualificationSummary: best?.qualification ? `${best.qualification.status} at ${best.qualification.score}/100` : "No qualification", outreachDraftId: runtime.result.messageId ?? null, taskIds: runtime.result.taskIds, memoryFactIds: runtime.result.memoryFactIds, plannerMode: runtime.mission.plannerMode, fallbackReason: runtime.mission.plannerFallbackReason }, outputSchema: missionResultSchema, promptVersion: "mission-summary-v3", temperature: 0.1, maxTokens: 1_000 }));

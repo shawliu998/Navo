@@ -129,6 +129,7 @@ export const agentMissions = pgTable("agent_missions", {
   maximumContinuations: integer("maximum_continuations").default(0).notNull(),
   autoContinue: boolean("auto_continue").default(false).notNull(),
   directorTickId: uuid("director_tick_id"),
+  replySourceMessageId: uuid("reply_source_message_id"),
   targetAccountId: uuid("target_account_id"),
   provider: text("provider"),
   model: text("model"),
@@ -145,6 +146,7 @@ export const agentMissions = pgTable("agent_missions", {
   index("agent_missions_workspace_root_idx").on(table.workspaceId, table.rootMissionId, table.continuationDepth),
   uniqueIndex("agent_missions_parent_unique").on(table.workspaceId, table.parentMissionId).where(sql`"parent_mission_id" IS NOT NULL`),
   uniqueIndex("agent_missions_director_tick_unique").on(table.workspaceId, table.directorTickId).where(sql`"director_tick_id" IS NOT NULL`),
+  uniqueIndex("agent_missions_reply_source_unique").on(table.workspaceId, table.replySourceMessageId).where(sql`"reply_source_message_id" IS NOT NULL`),
   uniqueIndex("agent_missions_active_retry_unique").on(table.workspaceId, table.retryOfMissionId).where(sql`"retry_of_mission_id" IS NOT NULL AND "status" NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')`),
 ]);
 

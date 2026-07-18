@@ -12,6 +12,17 @@ describe("mission planner", () => {
     ]);
   });
 
+  it("plans a bounded reply follow-up only for the supplied inbound message", async () => {
+    const replyContext = { sourceMessageId: "00000000-0000-4000-8000-000000000151", conversationId: "00000000-0000-4000-8000-000000000152" };
+    const result = await planMission(new MockAIProvider(), { objective: "Prepare a safe follow-up for this inbound question.", missionType: "REPLY_FOLLOW_UP", replyContext });
+    expect(result.data.replyContext).toEqual(replyContext);
+    expect(result.data.steps.map((step) => step.type)).toEqual(["LOAD_REPLY_CONTEXT", "GENERATE_REPLY_DRAFT", "CREATE_TASK", "UPDATE_MEMORY", "SUMMARIZE_MISSION"]);
+  });
+
+  it("rejects a reply mission without explicit inbound message context", async () => {
+    await expect(planMission(new MockAIProvider(), { objective: "Follow up on a reply.", missionType: "REPLY_FOLLOW_UP" })).rejects.toThrow("MISSION_PLAN_REPLY_CONTEXT_REQUIRED");
+  });
+
   it("falls back to an observable deterministic plan when the generated sequence is unusable", async () => {
     const invalid: AIProvider = {
       async generateStructured(request) {

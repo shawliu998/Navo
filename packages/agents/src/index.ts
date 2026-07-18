@@ -48,6 +48,8 @@ export const missionStepTypeSchema = z.enum([
   "RANK_ACCOUNTS",
   "DISCOVER_CONTACTS",
   "GENERATE_OUTREACH",
+  "LOAD_REPLY_CONTEXT",
+  "GENERATE_REPLY_DRAFT",
   "CREATE_TASK",
   "UPDATE_MEMORY",
   "SUMMARIZE_MISSION",
@@ -79,6 +81,10 @@ export const missionPlanSchema = z.object({
     companyTypes: z.array(z.string().trim().min(1).max(200)).max(30),
     keywords: z.array(z.string().trim().min(1).max(200)).max(50),
   }).strict(),
+  replyContext: z.object({
+    sourceMessageId: z.string().uuid(),
+    conversationId: z.string().uuid().nullable().default(null),
+  }).strict().nullable().optional(),
   steps: z.array(missionPlanStepSchema).min(4).max(12),
   stopConditions: z.array(z.string().trim().min(1).max(500)).min(1).max(12),
   expectedOutputs: z.array(z.string().trim().min(1).max(500)).min(1).max(12),
@@ -89,6 +95,8 @@ export const missionPlanSchema = z.object({
   const duplicateTypes = plan.steps.filter((step, index) => plan.steps.findIndex((candidate) => candidate.type === step.type) !== index);
   if (duplicateTypes.length) context.addIssue({ code: "custom", path: ["steps"], message: "Mission plan step types must not repeat." });
   if (plan.steps.at(-1)?.type !== "SUMMARIZE_MISSION") context.addIssue({ code: "custom", path: ["steps"], message: "SUMMARIZE_MISSION must be the final plan step." });
+  if (plan.missionType === "REPLY_FOLLOW_UP" && !plan.replyContext) context.addIssue({ code: "custom", path: ["replyContext"], message: "REPLY_FOLLOW_UP requires the inbound source message context." });
+  if (plan.missionType !== "REPLY_FOLLOW_UP" && plan.replyContext != null) context.addIssue({ code: "custom", path: ["replyContext"], message: "Reply context is only valid for REPLY_FOLLOW_UP." });
   const stepIds = new Set(plan.steps.map((step) => step.id));
   plan.steps.forEach((step, index) => step.dependsOn.forEach((dependency) => {
     if (!stepIds.has(dependency) || plan.steps.findIndex((candidate) => candidate.id === dependency) >= index) {
@@ -529,6 +537,7 @@ function mockFixture(operation: string, input: unknown, legacyMessage = false): 
   const evidenceIds = inputStrings(record.evidenceIds, ["demo-evidence"]);
   if (operation === "mission-plan") {
     const missionType = requestedMissionType(record);
+    const replyContext = record.replyContext && typeof record.replyContext === "object" ? record.replyContext : null;
     const commonSteps = [
       ["load-knowledge", "LOAD_SELLER_KNOWLEDGE", "Load seller knowledge", "Load products, capabilities, ICP and approved claims."],
       ["select-accounts", "SELECT_TARGET_ACCOUNTS", "Select target accounts", "Select bounded matching accounts from the workspace."],
@@ -543,11 +552,18 @@ function mockFixture(operation: string, input: unknown, legacyMessage = false): 
       ["generate-outreach", "GENERATE_OUTREACH", "Generate outreach draft", "Prepare a concise English DRAFT without sending it."],
       ["create-task", "CREATE_TASK", "Create next-step task", "Create an internal review and follow-up task."],
     ] as const : [];
+    const replySteps = missionType === "REPLY_FOLLOW_UP" ? [
+      ["load-reply-context", "LOAD_REPLY_CONTEXT", "Load inbound reply context", "Load the specified inbound message and its conversation only."],
+      ["generate-reply-draft", "GENERATE_REPLY_DRAFT", "Generate reply draft", "Prepare a concise reply DRAFT without sending it."],
+      ["create-task", "CREATE_TASK", "Create next-step task", "Create an internal review and follow-up task."],
+      ["update-memory", "UPDATE_MEMORY", "Update account memory", "Persist sourced account facts from this mission."],
+      ["summarize-mission", "SUMMARIZE_MISSION", "Summarize mission", "Create the final persisted result and next actions."],
+    ] as const : [];
     const finalSteps = [
       ["update-memory", "UPDATE_MEMORY", "Update account memory", "Persist sourced account facts from this mission."],
       ["summarize-mission", "SUMMARIZE_MISSION", "Summarize mission", "Create the final persisted result and next actions."],
     ] as const;
-    const mockSteps = [...commonSteps, ...outreachSteps, ...finalSteps].map(([id, type, title, description], index, all) => ({ id, type, title, description, status: "PENDING", dependsOn: index ? [all[index - 1]![0]] : [] }));
+    const mockSteps = (missionType === "REPLY_FOLLOW_UP" ? replySteps : [...commonSteps, ...outreachSteps, ...finalSteps]).map(([id, type, title, description], index, all) => ({ id, type, title, description, status: "PENDING", dependsOn: index ? [all[index - 1]![0]] : [], input: type === "LOAD_REPLY_CONTEXT" ? replyContext ?? undefined : undefined }));
     return {
     version: 1,
     name: String(record.name ?? "Nova Automation account research"),
@@ -561,9 +577,10 @@ function mockFixture(operation: string, input: unknown, legacyMessage = false): 
       companyTypes: ["Industrial manufacturer"],
       keywords: ["automation", "quality inspection", "production", "packaging"],
     },
+    replyContext,
     steps: mockSteps,
     stopConditions: ["Required mission artifacts are persisted", "Maximum iterations reached", "No executable step remains"],
-    expectedOutputs: missionType === "OUTREACH_PREPARATION" ? ["Compared target accounts", "Literal company evidence", "Opportunity signals", "Explainable qualifications", "Best account", "Evidence-backed contact", "English outreach draft", "Next-step task", "Account memory", "Mission summary"] : ["Compared target accounts", "Literal company evidence", "Opportunity signals", "Explainable qualifications", "Best account or no-match outcome", "Account memory", "Mission summary"],
+    expectedOutputs: missionType === "REPLY_FOLLOW_UP" ? ["Inbound reply context", "Reply DRAFT", "Task", "Account memory", "Outcome summary"] : missionType === "OUTREACH_PREPARATION" ? ["Compared target accounts", "Literal company evidence", "Opportunity signals", "Explainable qualifications", "Best account", "Evidence-backed contact", "English outreach draft", "Next-step task", "Account memory", "Mission summary"] : ["Compared target accounts", "Literal company evidence", "Opportunity signals", "Explainable qualifications", "Best account or no-match outcome", "Account memory", "Mission summary"],
     assumptions: ["Seed websites use repository-local fixtures in Mock mode.", "Outreach is saved as DRAFT and is never sent."],
     };
   }

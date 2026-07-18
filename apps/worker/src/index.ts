@@ -8,6 +8,7 @@ import { executeNode } from "@navo/workflows";
 import { executeMission } from "./mission-runner";
 import { scheduleMissionContinuation } from "./mission-continuation";
 import { runAgentDirectorTick } from "./agent-director";
+import { createReplyFollowUpMission } from "./reply-follow-up";
 
 config({ path: resolve(process.cwd(), "../../.env.local"), quiet: true });
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:56379";
@@ -27,6 +28,11 @@ const worker = new Worker("navo-runs", async (job) => {
     const { workspaceId, missionId } = job.data as { workspaceId?: string; missionId?: string };
     if (!workspaceId || !missionId) throw new Error("mission.continue jobs require workspaceId and missionId.");
     return scheduleMissionContinuation({ workspaceId, missionId }, { enqueueMission });
+  }
+  if (job.name === "reply.follow-up") {
+    const { workspaceId, inboundMessageId } = job.data as { workspaceId?: string; inboundMessageId?: string };
+    if (!workspaceId || !inboundMessageId) throw new Error("reply.follow-up jobs require workspaceId and inboundMessageId.");
+    return createReplyFollowUpMission({ workspaceId, inboundMessageId }, { enqueueMission });
   }
   if (job.name === "agent.tick") {
     const { workspaceId, trigger, resourceId } = job.data as { workspaceId?: string; trigger?: string; resourceId?: string };
