@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, count, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { MockAIProvider } from "@navo/agents";
-import { accounts, agentMissions, agentProfiles, createMission, db, workspaces } from "@navo/db";
+import { accounts, agentEvents, agentMissions, agentProfiles, createMission, db, requestAgentDirectorWake, workspaces } from "@navo/db";
 import { planMission } from "@navo/workflows/mission-planner";
 import { runAgentDirectorTick } from "./agent-director";
 
@@ -42,6 +42,20 @@ async function createDirectorFixture(options: { paused?: boolean; withAccount?: 
 }
 
 describe("agent director integration", () => {
+  it("persists an event wake and makes the next Director decision immediately due", async () => {
+    const fixture = await createDirectorFixture();
+    const future = new Date(Date.now() + 60 * 60_000);
+    await db.update(agentProfiles).set({ nextDirectorTickAt: future }).where(eq(agentProfiles.workspaceId, fixture.workspaceId));
+
+    const result = await requestAgentDirectorWake({ workspaceId: fixture.workspaceId, userId: fixture.userId, trigger: "REPLY_RECEIVED", resourceId: fixture.accountId });
+
+    expect(result.kind).toBe("WOKEN");
+    const [profile] = await db.select().from(agentProfiles).where(eq(agentProfiles.workspaceId, fixture.workspaceId)).limit(1);
+    expect(profile?.nextDirectorTickAt?.getTime()).toBeLessThan(future.getTime());
+    const [wakeEvent] = await db.select().from(agentEvents).where(and(eq(agentEvents.workspaceId, fixture.workspaceId), eq(agentEvents.type, "AGENT_DIRECTOR_WAKE_REQUESTED"))).limit(1);
+    expect(wakeEvent?.metadata).toMatchObject({ trigger: "REPLY_RECEIVED", resourceId: fixture.accountId });
+  });
+
   it("creates and queues one root Mission for eligible accounts, then does not repeat before its next tick", async () => {
     const fixture = await createDirectorFixture();
     const queued: Array<{ workspaceId: string; missionId: string }> = [];

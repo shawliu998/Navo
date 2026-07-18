@@ -9,7 +9,7 @@ import {
 } from "@navo/agents";
 import { planMission } from "@navo/workflows/mission-planner";
 
-export type AgentDirectorInput = { workspaceId: string };
+export type AgentDirectorInput = { workspaceId: string; trigger?: string; resourceId?: string };
 export type AgentDirectorDependencies = {
   ai?: AIProvider;
   now?: () => Date;
@@ -49,7 +49,7 @@ async function persistDecision(input: AgentDirectorInput, userId: string, decisi
   const scheduled = nextTickAt ?? new Date(now.getTime() + decision.nextCheckMinutes * 60_000);
   await db.transaction(async (tx) => {
     await tx.update(agentProfiles).set({ lastDirectorDecisionAt: now, nextDirectorTickAt: scheduled, lastDirectorDecision: { ...decision, tickId }, currentActivity: decision.action === "WAIT" ? `Director waiting: ${decision.reason}` : decision.action === "RESUME_MISSION" ? "Director resuming a prepared Mission" : "Director creating a new root Mission", lastHeartbeatAt: now, updatedAt: now }).where(eq(agentProfiles.workspaceId, input.workspaceId));
-    await tx.insert(agentEvents).values({ workspaceId: input.workspaceId, createdBy: userId, type: "AGENT_DIRECTOR_DECISION", title: `Director decided: ${decision.action.replaceAll("_", " ").toLowerCase()}.`, description: decision.reason, severity: decision.action === "WAIT" ? "INFO" : "SUCCESS", occurredAt: now, metadata: { tickId, action: decision.action, nextTickAt: scheduled.toISOString(), targetAccountIds: decision.targetAccountIds, resumeMissionId: decision.resumeMissionId } });
+    await tx.insert(agentEvents).values({ workspaceId: input.workspaceId, createdBy: userId, type: "AGENT_DIRECTOR_DECISION", title: `Director decided: ${decision.action.replaceAll("_", " ").toLowerCase()}.`, description: decision.reason, severity: decision.action === "WAIT" ? "INFO" : "SUCCESS", occurredAt: now, metadata: { tickId, action: decision.action, trigger: input.trigger ?? "SCHEDULED", resourceId: input.resourceId ?? null, nextTickAt: scheduled.toISOString(), targetAccountIds: decision.targetAccountIds, resumeMissionId: decision.resumeMissionId } });
   });
 }
 
@@ -99,6 +99,7 @@ export async function runAgentDirectorTick(input: AgentDirectorInput, dependenci
       resumableMissions: resumable,
       recentSignals,
       openTasks,
+      wakeContext: { trigger: input.trigger ?? "SCHEDULED", resourceId: input.resourceId ?? null },
       defaultTargetCriteria,
       limits: { maximumAccounts: 3, maximumIterations: 20, maximumContinuations: 2 },
     },

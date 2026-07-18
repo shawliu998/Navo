@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Activity, Bot, CheckCircle2, Clock3, Cpu, Target } from "lucide-react";
 import { DEMO_WORKSPACE_ID, getAgentStatus, getMission, getMissions } from "@navo/db/queries";
 import { Badge, MetricCard, PageHeader, StatusBadge } from "@navo/ui";
+import { DirectorConfigForm } from "@/components/director-config-form";
 
 export const metadata = { title: "Capabilities" };
 
@@ -62,6 +63,13 @@ export default async function CapabilitiesPage() {
         <div className="guardrail-item"><small>Interval / cooldown</small><strong>{profile?.directorIntervalMinutes ?? 15}m / {profile?.directorCooldownMinutes ?? 60}m</strong><span className="muted">Checks / new-root Mission pause</span></div>
         <div className="guardrail-item"><small>Daily limit</small><strong>{profile?.directorDailyMissionLimit ?? 3} root Missions</strong><span className="muted">Max {profile?.directorMaxActiveMissions ?? 1} active at once</span></div>
       </div>
+      <DirectorConfigForm initialConfig={{
+        enabled: profile?.directorEnabled ?? false,
+        intervalMinutes: profile?.directorIntervalMinutes ?? 15,
+        cooldownMinutes: profile?.directorCooldownMinutes ?? 60,
+        maxActiveMissions: profile?.directorMaxActiveMissions ?? 1,
+        dailyMissionLimit: profile?.directorDailyMissionLimit ?? 3,
+      }} />
     </section>
     {items.length ? <div className="integration-grid">{items.map(([id, item]) => <article className="integration-card" key={id}>
       <div className="integration-icon"><Cpu size={18}/></div>

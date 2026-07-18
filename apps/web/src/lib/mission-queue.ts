@@ -21,4 +21,8 @@ async function enqueue(jobName: string, payload: Record<string, string>, jobId: 
 
 export const enqueueMission = (payload: { workspaceId: string; missionId: string }) => enqueue(missionJobName, payload, `mission-${payload.missionId}`);
 export const enqueueMissionContinuation = (payload: { workspaceId: string; missionId: string }) => enqueue("mission.continue", payload, `mission-continuation-${payload.missionId}`);
-export const enqueueAgentTick = (workspaceId: string) => enqueue("agent.tick", { workspaceId }, `agent-tick-${crypto.randomUUID()}`);
+export const enqueueAgentTick = (workspaceId: string, options: { trigger?: string; resourceId?: string; jobId?: string } = {}) => enqueue(
+  "agent.tick",
+  { workspaceId, trigger: options.trigger ?? "MANUAL", ...(options.resourceId ? { resourceId: options.resourceId } : {}) },
+  options.jobId ?? `agent-tick-${crypto.randomUUID()}`,
+);

@@ -5,6 +5,8 @@ import { dedupeAccountKey, normalizeDomain } from "@navo/domain";
 import { accounts, auditLogs, db, importJobs, importRows } from "@navo/db";
 import { DEMO_WORKSPACE_ID } from "@navo/db/queries";
 import { apiError, requireDemoSession } from "@/lib/api";
+import { requestAgentDirectorWake } from "@navo/db";
+import { enqueueAgentTick } from "@/lib/mission-queue";
 
 const rowSchema = z.object({ companyName: z.string().min(1), website: z.string().optional(), country: z.string().optional(), industry: z.string().optional(), externalId: z.string().optional() });
 const schema = z.object({ fileName: z.string().min(1).default("accounts.csv"), mapping: z.record(z.string(), z.string()), rows: z.array(rowSchema).min(1).max(500) });
@@ -44,5 +46,9 @@ export async function POST(request: NextRequest) {
     await tx.insert(auditLogs).values({ workspaceId: DEMO_WORKSPACE_ID, actorName: "刘晓岚", action: "ACCOUNT_CSV_IMPORTED", resourceType: "IMPORT_JOB", resourceId: job.id, requestId: crypto.randomUUID(), summary: `${created} created, ${updated} updated, ${skipped} skipped`, metadata: { fileName: input.data.fileName } });
     return { jobId: job.id, created, updated, skipped };
   });
+  if (result.created > 0 || result.updated > 0) {
+    const wake = await requestAgentDirectorWake({ workspaceId: DEMO_WORKSPACE_ID, trigger: "ACCOUNTS_IMPORTED", resourceId: result.jobId });
+    if (wake.kind === "WOKEN") await enqueueAgentTick(DEMO_WORKSPACE_ID, { trigger: "ACCOUNTS_IMPORTED", resourceId: result.jobId, jobId: `agent-tick-import-${result.jobId}` }).catch(() => undefined);
+  }
   return NextResponse.json({ data: result }, { status: 201 });
 }

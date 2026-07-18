@@ -270,6 +270,48 @@ export async function setAgentPaused(workspaceId: string, userId: string, paused
   });
 }
 
+export type AgentDirectorConfigUpdate = {
+  enabled?: boolean;
+  intervalMinutes?: number;
+  cooldownMinutes?: number;
+  maxActiveMissions?: number;
+  dailyMissionLimit?: number;
+};
+
+/**
+ * Updates only the Director controls on the profile belonging to `workspaceId`.
+ * A running Director is made due immediately so a configuration change takes effect
+ * without waiting for the previously scheduled tick. A paused profile stays paused.
+ */
+export async function updateAgentDirectorConfig(workspaceId: string, userId: string, input: AgentDirectorConfigUpdate) {
+  return db.transaction(async (tx) => {
+    const [profile] = await tx.select().from(agentProfiles).where(eq(agentProfiles.workspaceId, workspaceId)).limit(1);
+    if (!profile) return null;
+    const changedAt = new Date();
+    const directorEnabled = input.enabled ?? profile.directorEnabled;
+    const shouldEnqueue = directorEnabled && profile.status !== "PAUSED";
+    const [updated] = await tx.update(agentProfiles).set({
+      directorEnabled,
+      directorIntervalMinutes: input.intervalMinutes ?? profile.directorIntervalMinutes,
+      directorCooldownMinutes: input.cooldownMinutes ?? profile.directorCooldownMinutes,
+      directorMaxActiveMissions: input.maxActiveMissions ?? profile.directorMaxActiveMissions,
+      directorDailyMissionLimit: input.dailyMissionLimit ?? profile.directorDailyMissionLimit,
+      nextDirectorTickAt: directorEnabled ? (shouldEnqueue ? changedAt : profile.nextDirectorTickAt) : null,
+      updatedAt: changedAt,
+    }).where(and(eq(agentProfiles.workspaceId, workspaceId), eq(agentProfiles.id, profile.id))).returning();
+    await tx.insert(agentEvents).values({
+      workspaceId,
+      createdBy: userId,
+      type: "AGENT_DIRECTOR_CONFIG_UPDATED",
+      title: "Director configuration updated by the operator.",
+      severity: "INFO",
+      occurredAt: changedAt,
+      metadata: { enabled: directorEnabled, scheduledImmediately: shouldEnqueue, changedFields: Object.keys(input) },
+    });
+    return updated ? { profile: updated, shouldEnqueue } : null;
+  });
+}
+
 export const getMissions = (workspaceId: string) => db.select().from(agentMissions).where(and(eq(agentMissions.workspaceId, workspaceId), sql`${agentMissions.archivedAt} is null`)).orderBy(desc(agentMissions.updatedAt));
 
 export async function getMission(workspaceId: string, missionId: string) {

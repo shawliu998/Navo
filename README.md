@@ -34,7 +34,11 @@ Mission blocks work, the Director reads eligible accounts, recent signals, open 
 Missions, then chooses `WAIT`, `RESUME_MISSION` or `CREATE_MISSION`. New root Missions are linked
 to a unique Director tick and enter the same bounded planning and continuation runtime. Persisted
 cooldown, active-Mission and daily-root limits prevent duplicate or unbounded starts. Pausing Navo
-suppresses Director work; resuming schedules an immediate evaluation.
+suppresses Director work; resuming schedules an immediate evaluation. Operators can edit the
+interval, cooldown, active-Mission limit, daily-root limit and enabled state on the Capabilities
+page. Account imports, inbound replies, new follow-up tasks and settled Missions persist a wake
+request and advance the next Director tick; the one-minute scheduler remains the fallback if the
+immediate Redis enqueue is unavailable.
 
 Registered tools are Load Seller Knowledge, Select Target Accounts, Create Target Account,
 Website Fetch, Research Company, Extract Signals, Qualify Account, Rank Accounts, Generate

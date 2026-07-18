@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 import { getAIProvider } from "@navo/agents";
-import { DEMO_WORKSPACE_ID } from "@navo/db";
+import { DEMO_WORKSPACE_ID, requestAgentDirectorWake } from "@navo/db";
 import { executeNode } from "@navo/workflows";
 import { executeMission } from "./mission-runner";
 import { scheduleMissionContinuation } from "./mission-continuation";
@@ -18,7 +18,10 @@ const worker = new Worker("navo-runs", async (job) => {
   if (job.name === "mission.execute") {
     const { workspaceId, missionId } = job.data as { workspaceId?: string; missionId?: string };
     if (!workspaceId || !missionId) throw new Error("mission.execute jobs require workspaceId and missionId.");
-    return executeMission({ workspaceId, missionId }, { enqueueMission });
+    const result = await executeMission({ workspaceId, missionId }, { enqueueMission });
+    const wake = await requestAgentDirectorWake({ workspaceId, trigger: "MISSION_SETTLED", resourceId: missionId });
+    if (wake.kind === "WOKEN") await missionQueue.add("agent.tick", { workspaceId, trigger: "MISSION_SETTLED", resourceId: missionId }, { jobId: `agent-tick-mission-${missionId}`, removeOnComplete: 100, removeOnFail: 100 }).catch((error: Error) => console.error(`Director wake queue failed: ${error.message}`));
+    return result;
   }
   if (job.name === "mission.continue") {
     const { workspaceId, missionId } = job.data as { workspaceId?: string; missionId?: string };
@@ -26,9 +29,9 @@ const worker = new Worker("navo-runs", async (job) => {
     return scheduleMissionContinuation({ workspaceId, missionId }, { enqueueMission });
   }
   if (job.name === "agent.tick") {
-    const { workspaceId } = job.data as { workspaceId?: string };
+    const { workspaceId, trigger, resourceId } = job.data as { workspaceId?: string; trigger?: string; resourceId?: string };
     if (!workspaceId) throw new Error("agent.tick jobs require workspaceId.");
-    return runAgentDirectorTick({ workspaceId }, { enqueueMission });
+    return runAgentDirectorTick({ workspaceId, trigger, resourceId }, { enqueueMission });
   }
   const { workspaceId, runId, nodeType, input, config: nodeConfig } = job.data as { workspaceId: string; runId: string; nodeType: string; input: Record<string, unknown>; config: Record<string, unknown> };
   if (!workspaceId || !runId) throw new Error("Worker jobs require workspaceId and runId.");
