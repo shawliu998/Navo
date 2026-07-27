@@ -12,7 +12,7 @@ const ids = {
 test.describe.serial("Navo Agent Experience Sprint 0.3", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/login");
-    await page.getByRole("button", { name: /进入 Demo Workspace/ }).click();
+    await page.getByRole("button", { name: /Enter demo workspace/i }).click();
     await expect(page).toHaveURL(/\/app\/overview/);
   });
 
@@ -118,17 +118,21 @@ test.describe.serial("Navo Agent Experience Sprint 0.3", () => {
     await expect(page.getByText("Load Nova Automation product knowledge")).toBeVisible();
     await page.getByRole("link", { name: "Activity", exact: true }).click();
     await expect(page.getByText(/durable timeline/i)).toBeVisible();
+    const pauseResponse = page.waitForResponse((response) => response.url().endsWith(`/api/missions/${ids.mission}/pause`) && response.request().method() === "POST");
     await page.getByRole("button", { name: "Pause", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
+    expect((await pauseResponse).status()).toBe(200);
+    await expect(page.getByRole("button", { name: "Resume" })).toBeVisible({ timeout: 20_000 });
+    const resumeResponse = page.waitForResponse((response) => response.url().endsWith(`/api/missions/${ids.mission}/resume`) && response.request().method() === "POST");
     await page.getByRole("button", { name: "Resume" }).click();
+    expect((await resumeResponse).status()).toBe(200);
   });
 
   test("Account worklist and Ask Navo produce a contextual assessment", async ({ page }) => {
     await page.goto("/app/accounts");
-    await expect(page.getByText("Agent Priority")).toBeVisible();
-    await page.goto(`/app/accounts/${ids.account}`);
-    await expect(page.getByText("What Navo thinks")).toBeVisible();
-    await page.getByRole("link", { name: /Ask Navo about this account/ }).click();
+    await expect(page.getByRole("columnheader", { name: /Priority/ })).toBeVisible();
+    await page.goto(`/app/accounts/${ids.account}?tab=intelligence&view=research`);
+    await expect(page.getByRole("heading", { name: "Research summary" })).toBeVisible();
+    await page.getByRole("link", { name: "Create mission" }).click();
     await expect(page).toHaveURL(new RegExp(`/app/missions/new\\?accountId=${ids.account}`));
   });
 
@@ -142,11 +146,11 @@ test.describe.serial("Navo Agent Experience Sprint 0.3", () => {
 
   test("Human approval and Agent Activity explain recommendations and execution", async ({ page }) => {
     await page.goto(`/app/approvals/${ids.approval}`);
-    await expect(page.getByText(/Navo recommends/i)).toBeVisible();
+    await expect(page.getByText("AI recommendation", { exact: true })).toBeVisible();
     await page.screenshot({ path: path.join(shots, "approval-agent.png"), fullPage: true });
     await page.goto(`/app/runs/${ids.run}`);
-    await expect(page.getByText("BUSINESS SUMMARY")).toBeVisible();
-    await expect(page.getByText(/PLAYBOOK V/)).toBeVisible();
+    await expect(page.getByText("Navo completed this activity")).toBeVisible();
+    await expect(page.getByText("EVIDENCE CAPTURED", { exact: true })).toBeVisible();
     await page.screenshot({ path: path.join(shots, "run-detail-agent.png"), fullPage: true });
   });
 
