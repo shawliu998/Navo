@@ -4,139 +4,94 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
-  BookOpen,
-  Bot,
-  BrainCircuit,
   Building2,
-  ChevronDown,
-  CircleHelp,
+  ClipboardCheck,
+  Inbox as InboxIcon,
   LayoutDashboard,
-  Link2,
-  ListChecks,
-  ListTodo,
-  MessageSquareText,
   Radar,
   Settings,
   Target,
-  UsersRound,
 } from "lucide-react";
 import { AgentStatusControl } from "./agent-status-control";
 import { CommandMenu } from "./command-menu";
 import { AgentNotificationCenter } from "./agent-notifications";
+import { NavoBrand } from "./navo-brand";
 
-const navGroups = [
-  {
-    label: "Navo",
-    items: [
-      ["Command Center", "/app/overview", LayoutDashboard],
-      ["Missions", "/app/missions", Target],
-    ],
-  },
-  {
-    label: "Discover",
-    items: [
-      ["Accounts", "/app/accounts", Building2],
-      ["Signals", "/app/signals", Radar],
-    ],
-  },
-  {
-    label: "Human Control",
-    items: [
-      ["Approvals", "/app/approvals", ListChecks],
-      ["Tasks", "/app/tasks", ListTodo],
-    ],
-  },
-  {
-    label: "Intelligence",
-    items: [
-      ["Conversations", "/app/conversations", MessageSquareText],
-      ["Memory", "/app/memory", BrainCircuit],
-    ],
-  },
-  {
-    label: "Monitor",
-    items: [
-      ["Analytics", "/app/analytics", BarChart3],
-    ],
-  },
-  {
-    label: "Configure",
-    items: [
-      ["Knowledge", "/app/knowledge", BookOpen],
-      ["Capabilities", "/app/agents", Bot],
-      ["Integrations", "/app/integrations", Link2],
-      ["Settings", "/app/settings", Settings],
-    ],
-  },
+const primaryNav = [
+  { label: "Overview", href: "/app/overview", icon: LayoutDashboard },
+  { label: "Accounts", href: "/app/accounts", icon: Building2 },
+  { label: "Signals", href: "/app/signals", icon: Radar },
+  { label: "Missions", href: "/app/missions", icon: Target },
+  { label: "Approvals", href: "/app/approvals", icon: ClipboardCheck },
+  { label: "Inbox", href: "/app/conversations", icon: InboxIcon, related: ["/app/tasks"] },
+  { label: "Analytics", href: "/app/analytics", icon: BarChart3 },
 ] as const;
 
-function isActiveRoute(pathname: string, href: string) {
+const secondaryNav = [
+  { label: "Settings", href: "/app/settings", icon: Settings, related: ["/app/knowledge"] },
+] as const;
+
+function isActiveRoute(pathname: string, href: string, related: readonly string[] = []) {
   if (href === "/app/overview") return pathname === href;
-  return pathname === href || pathname.startsWith(`${href}/`);
+  return [href, ...related].some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const focusedBuilder = pathname.endsWith("/builder");
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${focusedBuilder ? " app-shell-builder" : ""}`}>
       <aside className="sidebar">
         <Link href="/app/overview" className="brand" aria-label="Navo Command Center">
-          <span className="brand-mark">N</span>
-          <span>Navo</span>
+          <NavoBrand mode="responsive" tone="white" priority />
         </Link>
 
-        <button className="workspace-switcher" aria-label="Switch workspace" type="button">
+        <div className="workspace-switcher" aria-label="Current workspace">
           <div style={{ textAlign: "left" }}>
             <strong>Nova Automation</strong>
-            <small>Owner workspace</small>
+            <small>Demo seller workspace</small>
           </div>
           <span className="env-badge">Demo</span>
-          <ChevronDown size={13} />
-        </button>
+        </div>
 
         <nav className="nav" aria-label="Primary navigation">
-          {navGroups.map((group) => (
-            <div key={group.label} className="nav-section">
-              <div className="nav-group">{group.label}</div>
-              {group.items.map(([label, href, Icon]) => {
-                const active = isActiveRoute(pathname, href);
-                return (
-                  <Link
-                    key={href}
-                    className={`nav-link${active ? " nav-link-active" : ""}`}
-                    href={href}
-                    aria-current={active ? "page" : undefined}
-                    title={label}
-                  >
-                    <Icon />
-                    <span>{label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+          {primaryNav.map((item) => {
+            const { label, href, icon: Icon } = item;
+            const active = isActiveRoute(pathname, href, "related" in item ? item.related : []);
+            return (
+              <Link
+                key={href}
+                className={`nav-link${active ? " nav-link-active" : ""}`}
+                href={href}
+                aria-current={active ? "page" : undefined}
+                title={label}
+              >
+                <Icon />
+                <span>{label}</span>
+              </Link>
+            );
+          })}
         </nav>
 
-        <div className="sidebar-footer">
-          <a
-            className="nav-link"
-            href="https://github.com/shawliu998/Navo"
-            target="_blank"
-            rel="noreferrer"
-            title="Help"
-          >
-            <CircleHelp />
-            <span>Help</span>
-          </a>
-          <div className="user-card">
-            <span className="avatar">刘</span>
-            <div>
-              <strong>刘晓岚</strong>
-              <small>Workspace Owner</small>
-            </div>
-          </div>
-        </div>
+        <nav className="sidebar-footer" aria-label="Secondary navigation">
+          {secondaryNav.map((item) => {
+            const { label, href, icon: Icon } = item;
+            const active = isActiveRoute(pathname, href, "related" in item ? item.related : []);
+            return (
+              <Link
+                key={href}
+                className={`nav-link${active ? " nav-link-active" : ""}`}
+                href={href}
+                aria-current={active ? "page" : undefined}
+                title={label}
+              >
+                <Icon />
+                <span>{label}</span>
+              </Link>
+            );
+          })}
+        </nav>
       </aside>
 
       <main className="app-main">
@@ -145,9 +100,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="topbar-actions">
             <CommandMenu />
             <AgentNotificationCenter />
-            <button className="icon-button topbar-members" aria-label="Workspace members" type="button">
-              <UsersRound size={16} />
-            </button>
+            <Link className="topbar-avatar" aria-label="Workspace settings" href="/app/settings" title="Xiaolan Liu · Workspace Owner">
+              XL
+            </Link>
           </div>
         </header>
         {children}

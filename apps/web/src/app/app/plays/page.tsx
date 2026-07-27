@@ -11,7 +11,7 @@ export default async function PlaysPage() {
   const reused = plays.filter((play) => missions.some((mission) => mission.playId === play.id));
 
   return <div className="page">
-    <PageHeader eyebrow="REUSABLE EXECUTION" title="Playbooks" description="将可验证的研究、资格评定、审批与跟进步骤封装为可重用版本，并跟踪它们被 Mission 使用的情况。" actions={<Link href="/app/plays/new" className="button button-primary"><Plus size={15}/>创建 Playbook</Link>}/>
+    <PageHeader eyebrow="REUSABLE EXECUTION" title="Playbooks" description="Package research, qualification, approval, and follow-up into reusable versions, then track how Missions use them." actions={<Link href="/app/plays/new" className="button button-primary"><Plus size={15}/>Create playbook</Link>}/>
     <section className="metrics-grid">
       <MetricCard label="Playbooks" value={plays.length} helper={`${published.length} have a published version`} icon={<Workflow size={14}/>}/>
       <MetricCard label="Used by missions" value={reused.length} helper={`${missions.filter((mission) => mission.playId).length} mission assignments`} icon={<Target size={14}/>}/>
@@ -26,7 +26,7 @@ export default async function PlaysPage() {
         </div>
         <div className="detail-grid" style={{marginTop: 14}}>
           <div className="guardrail-item"><small>Published version</small><strong>{play.activeVersionId ? "Available" : "Not published"}</strong><span className="muted">{play.draftVersionId ? "Draft changes in progress" : "No draft changes"}</span></div>
-          <div className="guardrail-item"><small>Observed performance</small><strong>{play.successRate == null ? "No success rate yet" : `${play.successRate}% success`}</strong><span className="muted">{play.lastRunAt ? `Last run ${play.lastRunAt.toLocaleDateString("zh-CN")}` : "Never run"}</span></div>
+          <div className="guardrail-item"><small>Observed performance</small><strong>{play.successRate == null ? "No success rate yet" : `${play.successRate}% success`}</strong><span className="muted">{play.lastRunAt ? `Last run ${play.lastRunAt.toLocaleDateString("en-US")}` : "Never run"}</span></div>
           <div className="guardrail-item"><small>Owner</small><strong>{play.ownerName ?? "Unassigned"}</strong><span className="muted">Workspace scoped</span></div>
         </div>
         <div style={{marginTop: 14}}>
@@ -35,6 +35,6 @@ export default async function PlaysPage() {
         </div>
       </article>;
     })}</div>
-    <div className="alert alert-info" style={{marginTop: 14}}><Activity size={17}/><span>Published Version 不可修改。编辑 Active Playbook 时系统会从当前版本创建新 Draft，Mission 继续保留原始执行关系。</span></div>
+    <div className="alert alert-info" style={{marginTop: 14}}><Activity size={17}/><span>Published versions are immutable. Editing an active playbook creates a new draft while existing Missions retain their original execution link.</span></div>
   </div>;
 }

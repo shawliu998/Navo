@@ -2,13 +2,11 @@ import Link from "next/link";
 import {
   Activity,
   ArrowRight,
-  Bot,
   Building2,
   CheckCircle2,
   Clock3,
   ListChecks,
   MessageSquareReply,
-  PauseCircle,
   PlayCircle,
   ShieldCheck,
   Target,
@@ -50,9 +48,8 @@ export default async function OverviewPage() {
   const isPaused = agentStatus === "PAUSED";
 
   return (
-    <div className="page">
+    <div className="page command-center-page">
       <PageHeader
-        eyebrow="Navo · Live workspace"
         title="Command Center"
         description="Set an outcome, inspect Navo's live plan, and keep every external action inside an explicit approval boundary."
         actions={(
@@ -63,10 +60,8 @@ export default async function OverviewPage() {
         )}
       />
 
-      <section className="card" style={{ marginBottom: 14, padding: 16, display: "flex", alignItems: "center", gap: 14 }}>
-        <span className="attention-icon" style={{ background: isPaused ? "#fff4df" : "#e9f7f1", color: isPaused ? "var(--warning)" : "var(--success)" }}>
-          {isPaused ? <PauseCircle size={17} /> : <Bot size={17} />}
-        </span>
+      <section className={`command-center-runtime${isPaused ? " command-center-runtime-paused" : ""}`}>
+        <span className="command-center-runtime-dot" aria-hidden="true" />
         <span style={{ flex: 1, minWidth: 0 }}>
           <strong style={{ display: "block", fontSize: 13 }}>{isPaused ? "Navo is paused" : agent.profile?.currentActivity ?? mission?.currentStep ?? "Navo is ready"}</strong>
           <small className="muted">
@@ -74,7 +69,7 @@ export default async function OverviewPage() {
             {agent.profile?.lastHeartbeatAt ? ` · heartbeat ${relativeTime(agent.profile.lastHeartbeatAt)}` : ""}
           </small>
         </span>
-        <StatusBadge status={agentStatus} />
+        <span className="command-center-runtime-state">{isPaused ? "Paused" : agentStatus === "IDLE" ? "Ready" : "Active"}</span>
       </section>
 
       <AgentCommandComposer accounts={accounts.map(({ id, name, website, domain, country, industry }) => ({ id, name, website, domain, country, industry }))} />

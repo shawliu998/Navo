@@ -1,4 +1,17 @@
 "use client";
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-export function FunnelBars({data}:{data:Array<{name:string;value:number}>}){return <div className="chart-shell"><ResponsiveContainer width="100%" height="100%"><BarChart data={data} margin={{top:10,right:10,left:-22,bottom:6}}><CartesianGrid stroke="#edf0f3" vertical={false}/><XAxis dataKey="name" tick={{fontSize:10,fill:"#7c8491"}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:"#7c8491"}} axisLine={false} tickLine={false}/><Tooltip contentStyle={{border:"1px solid #e3e6eb",borderRadius:8,fontSize:12}}/><Bar dataKey="value" fill="#665cf6" radius={[6,6,2,2]}/></BarChart></ResponsiveContainer></div>}
-export function QualificationPie(){const data=[{name:"Strong Fit",value:3,color:"#1f9d66"},{name:"Potential Fit",value:3,color:"#377cf6"},{name:"Review",value:2,color:"#d88a18"},{name:"Low Fit",value:2,color:"#d84c4c"},{name:"Not Researched",value:2,color:"#b5bbc5"}];return <div className="chart-shell"><ResponsiveContainer><PieChart><Pie data={data} dataKey="value" nameKey="name" innerRadius={62} outerRadius={96} paddingAngle={3}>{data.map(item=><Cell fill={item.color} key={item.name}/>)}</Pie><Tooltip contentStyle={{border:"1px solid #e3e6eb",borderRadius:8,fontSize:12}}/></PieChart></ResponsiveContainer></div>}
+
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+
+export type QualificationSlice = { name: string; value: number; color: string };
+
+export function FunnelBars({ data }: { data: Array<{ name: string; value: number }> }) {
+  const total = Math.max(data[0]?.value ?? 0, 1);
+  return <div className="analytics-funnel-bars">{data.map((item) => {
+    const percentage = Math.round(item.value / total * 1000) / 10;
+    return <div key={item.name}><span><strong>{item.name}</strong><em>{item.value} · {percentage}%</em></span><i><b style={{ width: `${Math.max(2, percentage)}%` }} /></i></div>;
+  })}</div>;
+}
+
+export function QualificationPie({ data }: { data: QualificationSlice[] }) {
+  return <div className="analytics-qualification-pie"><ResponsiveContainer><PieChart><Pie data={data} dataKey="value" nameKey="name" innerRadius={34} outerRadius={52} paddingAngle={1} stroke="#ffffff" strokeWidth={2} isAnimationActive={false}>{data.map((item) => <Cell fill={item.color} key={item.name} />)}</Pie><Tooltip contentStyle={{ border: "1px solid #dfe3e8", borderRadius: 5, background: "#ffffff", color: "#18201e", fontSize: 10 }} /></PieChart></ResponsiveContainer></div>;
+}

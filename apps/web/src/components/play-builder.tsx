@@ -321,10 +321,10 @@ export function PlayBuilder({
           </span>
         </div>
         <div className="builder-toolbar-group">
-          <button className="dark-button" aria-label="撤销">
+          <button className="dark-button" aria-label="Undo">
             <Undo2 size={14} />
           </button>
-          <button className="dark-button" aria-label="重做">
+          <button className="dark-button" aria-label="Redo">
             <Redo2 size={14} />
           </button>
           <button
@@ -487,7 +487,7 @@ export function PlayBuilder({
             >
               <ShieldCheck size={15} />
               <span style={{ fontSize: 11 }}>
-                配置通过 Schema 校验。外部动作仍需 Policy 与 Approval。
+                Configuration passed schema validation. External actions still require policy checks and approval.
               </span>
             </div>
             <button
@@ -501,8 +501,8 @@ export function PlayBuilder({
         ) : (
           <div className="empty-state">
             <MousePointer2 />
-            <strong>选择一个节点</strong>
-            <p>查看配置、输入输出与验证结果。</p>
+            <strong>Select a node</strong>
+            <p>Review its configuration, inputs, outputs, and validation result.</p>
           </div>
         )}
       </aside>
