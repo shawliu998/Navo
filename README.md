@@ -1,205 +1,187 @@
-# Navo
+<h1 align="center">Navo</h1>
 
-Navo is an autonomous AI growth agent for industrial B2B sales. A user gives Navo a natural-language objective; Navo plans the work, selects and researches accounts, extracts evidence-backed opportunities, qualifies and ranks them, saves an English outreach draft, creates the next task, updates account memory and completes the Mission.
+<p align="center">
+  <strong>Turn account evidence into qualified opportunities, reviewed outreach, and owned next actions.</strong>
+</p>
 
-## Autonomous Mission flow
+<p align="center">
+  <a href="docs/PROJECT_STORY.zh-CN.md">Project story (ZH)</a> ·
+  <a href="docs/DEMO_SCRIPT.md">Demo script</a> ·
+  <a href="docs/PORTFOLIO_EVALUATION.md">Evaluation</a> ·
+  <a href="ARCHITECTURE.md">Architecture</a> ·
+  <a href="docs/TECHNICAL_REFERENCE.md">Technical reference</a>
+</p>
 
-```text
-Natural-language objective → Mission Planner → Structured Plan
-→ Select target Accounts → Bounded website fetch → Company Research
-→ Literal Evidence + Opportunity Signals → Explainable Qualification
-→ Account Ranking → English DRAFT → Next-step Task
-→ Account Memory → Mission Result
-```
+<p align="center">
+  <img src="artifacts/portfolio/01-account-intelligence.png" alt="Navo account intelligence workspace showing source-backed evidence, qualification, contacts, and the next operator action" width="100%">
+</p>
 
-A Mission is planned on the server and consumed by the BullMQ worker. The immutable initial
-specification stays in `agent_missions.plan`; `agent_plan_steps` is the execution truth. Ordinary
-step scheduling is deterministic, while bounded structured decisions are made after website,
-qualification and ranking checkpoints. The default bound is 20 iterations.
-The planner receives one schema-aware repair attempt before an observable deterministic fallback.
-Account selection starts with a small batch: website checkpoints can add replacement candidates,
-and qualification checkpoints can add candidates and re-enter Fetch → Research → Signals →
-Qualification. Expansion never exceeds the Mission account or iteration bounds.
+<p align="center">
+  <sub><em>One operating path from account evidence to the next commercial decision.</em></sub>
+</p>
 
-An explicitly enabled Mission chain adds a second bounded loop across Missions. After a Mission
-completes, a structured AI decision either stops or creates exactly one successor. Discovery can
-progress into outreach preparation for the strongest qualified account; a no-match result can
-continue with unused workspace accounts. Every successor stores its parent, root and depth,
-PostgreSQL permits only one child per parent, and the chain stops at `maximumContinuations`.
-The workspace pause defers successor creation; resuming Navo requeues eligible deferred decisions.
+---
 
-The Agent Director closes the outermost loop. BullMQ emits a lightweight `agent.tick` every
-minute; the persisted profile interval determines when a real evaluation is due. When no active
-Mission blocks work, the Director reads eligible accounts, recent signals, open tasks and prepared
-Missions, then chooses `WAIT`, `RESUME_MISSION` or `CREATE_MISSION`. New root Missions are linked
-to a unique Director tick and enter the same bounded planning and continuation runtime. Persisted
-cooldown, active-Mission and daily-root limits prevent duplicate or unbounded starts. Pausing Navo
-suppresses Director work; resuming schedules an immediate evaluation. Operators can edit the
-interval, cooldown, active-Mission limit, daily-root limit and enabled state on the Capabilities
-page. Account imports, inbound replies, new follow-up tasks and settled Missions persist a wake
-request and advance the next Director tick; the one-minute scheduler remains the fallback if the
-immediate Redis enqueue is unavailable.
+## What is this, really?
 
-Inbound EmailSink replies enter a dedicated event-driven loop instead of a generic discovery
-Mission. A unique `(workspace, inbound message)` key creates at most one `REPLY_FOLLOW_UP`
-Mission. Its fixed bounded plan loads only that persisted reply, asks the configured provider for
-one approval-required reply DRAFT, reuses or creates the internal next-action task, links
-source-message memory and writes a deterministic completion summary. It never re-runs website
-research and never sends the draft. Queue submission failures leave the same Mission `READY` for
-Director retry rather than creating a duplicate.
+Navo is an account-intelligence and outbound-orchestration workspace for industrial B2B teams.
 
-Resend inbound webhooks are supported at `POST /api/webhooks/resend/inbound`. The route verifies
-the Svix signature using `RESEND_WEBHOOK_SECRET`, ignores non-`email.received` events, and queues
-a worker job that fetches the full email from Resend with `RESEND_API_KEY`. The worker matches
-the original outbound Navo message via `in-reply-to`, `references`, or `x-navo-message-id`,
-persists the reply idempotently through the same reply loop as EmailSink, and creates exactly
-one `REPLY_FOLLOW_UP` mission. Duplicate webhook deliveries do not create duplicate inbound
-messages, tasks, or missions.
-
-For real reply matching, the outbound sender must persist the email `Message-ID` that recipients
-will return in `In-Reply-To`/`References` as `messages.providerMessageId`, or arrange for the reply
-to carry Navo's internal message UUID in `X-Navo-Message-Id`. The current MVP still sends no real
-outbound email; this inbound path activates once a compatible sender or Reply-To token is wired.
-
-Registered tools are Load Seller Knowledge, Select Target Accounts, Create Target Account,
-Website Fetch, Research Company, Extract Signals, Qualify Account, Rank Accounts, Generate
-Outreach, Create Task, Update Memory and Summarize Mission.
-
-Demo objective:
+It starts with a target account, gathers source-backed evidence, separates facts from inference,
+qualifies the opportunity, prepares a message for human review, and turns the reply into an owned
+next action. The interface is built around that operating loop—not around a chatbot.
 
 ```text
-Find high-fit packaging and automotive component manufacturers in DACH,
-research their automation and quality-inspection needs,
-select the strongest opportunity,
-and prepare a concise English outreach draft.
+Accounts → Signals / Evidence → Research → Qualification → Contacts
+→ Mission / Play → Message / Sequence → Replies → Next Best Action
 ```
 
-## Mission follow-through
+In practice, Navo feels like a compact sales operations workspace. Underneath, it is a bounded
+execution system: model output is structured, evidence is traceable, workflow state is durable,
+and external action stops at a human checkpoint.
 
-A completed Mission presents a persisted-data-only Completion Brief: qualification, the
-strongest findings, evidence links, risks and the DRAFT subject. `REVIEW` is explicitly a
-needs-review outcome, not a qualified account. Operators may edit an `OUTBOUND` `DRAFT`
-with a revision token; the first edit preserves the original subject/body and no edit sends
-mail or creates an Approval. The notification center surfaces durable Mission/task updates.
+---
 
-Completion Brief actions can create one workspace-scoped manual follow-up task per Mission
-target. A FAILED Mock Mission can be retried only by creating a new linked Mission; the
-failed history remains intact and PostgreSQL allows only one non-terminal retry for an original
-Mission. Queue jobs still contain IDs only. The current Mission runner does not accumulate
-provider usage, so actual Mission cost is shown as **Not measured**; plan cost is an estimate.
+## What I designed
 
-This is a local demonstration, not a production system. It does not send real email, modify an
-external CRM, search LinkedIn or contact databases, produce quotes or contracts, run arbitrary
-code, provide multi-agent collaboration or claim production-grade security.
+The main work was deciding how the system should behave before deciding how many features it
+should have.
 
-## Stack
+- **Product framing** — narrowed the product from a generic “AI sales platform” to one operator
+  loop with a clear beginning, decision points, and outcome.
+- **Workflow architecture** — defined which steps belong to deterministic code, which decisions
+  can use a model, and where execution must stop for review.
+- **Evidence model** — separated source facts, external signals, qualification, recommendations,
+  and human decisions so each claim has a visible origin.
+- **Failure boundaries** — added iteration, account, continuation, idempotency, and outbound-action
+  limits instead of treating a successful happy path as sufficient.
+- **Evaluation strategy** — designed deterministic tests, browser coverage, a real-provider smoke
+  path, and regression cases around entity drift and unsupported narration.
+- **Product interface** — adapted mature account, mission, approval, inbox, and analytics patterns
+  into one dense workspace without turning infrastructure into the product.
 
-- pnpm workspace and Turborepo
-- Next.js App Router and TypeScript
-- PostgreSQL with Drizzle ORM
-- Redis and BullMQ
-- Vitest and Playwright
+I led the product definition, system planning, task decomposition, acceptance criteria, and
+trade-off decisions. Coding assistants were used as implementation and review tools inside that
+plan; repository facts, working behavior, and tests remained the source of truth.
 
-## Mock and DeepSeek modes
+---
 
-`AI_PROVIDER=mock` is the default deterministic mode. It needs no API key or model call, and
-seeded `.example` websites are read from repository-local HTML fixtures. It is used by tests.
+## A look inside
 
-Set `AI_PROVIDER=deepseek`, `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` and `DEEPSEEK_MODEL` to
-use the existing server-only DeepSeek adapter. Planner, checkpoint, research, signal,
-qualification, ranking, draft and summary outputs all pass through Zod, and the adapter sends
-the requested JSON Schema with every structured call. Planner, company-research and outreach
-contracts have live DeepSeek smoke coverage; a complete paid-provider end-to-end run is not
-part of the deterministic test suite. Linear next-step selection is handled in code to avoid
-an unnecessary model call for every mission step. After seeding local demo data, run a paid live
-opportunity-discovery smoke test with `pnpm smoke:deepseek`; it creates and executes one Mission
-and prints its ID, planner mode, outcome and summary. Set `DEEPSEEK_SMOKE_CHAIN=1` to also exercise
-the real continuation decision, successor planning and successor execution.
+| Account intelligence | Mission workbench |
+| --- | --- |
+| ![Account evidence, qualification, contacts, and next action](artifacts/portfolio/01-account-intelligence.png) | ![Mission objective, execution plan, target accounts, and progress](artifacts/portfolio/02-mission-workbench.png) |
+| Source evidence and qualification stay beside the account. | A natural-language objective becomes a bounded, inspectable plan. |
 
-Website content is untrusted input. Research applies SSRF, response-size, page-size,
-redirect and bounded-page limits; evidence quotes must be literal excerpts from fetched
-source text and source URLs must be among the fetched pages. Generated outreach is saved as
-`DRAFT` only. The MVP does not create a sending Approval, does not support real email
-sending, and is not production-ready. EmailSink reply, bounce, unsubscribe and complaint
-events are simulations for exercising downstream workflows.
+| Human checkpoint | Reply loop |
+| --- | --- |
+| ![Message review with evidence and a recorded human decision](artifacts/portfolio/03-human-checkpoint.png) | ![Reply inbox with thread, account context, and next best action](artifacts/portfolio/04-reply-loop.png) |
+| Proposed outreach is editable before approval and read-only after the decision. | A reply becomes a classified conversation, one next action, and one owned task. |
 
-## Local setup
+| Current workspace analytics |
+| --- |
+| ![Current conversion, qualification mix, and source performance](artifacts/portfolio/05-analytics.png) |
+| Only current query-backed values are shown; synthetic trends and decorative filters were removed. |
 
-The fastest disposable-demo path is:
+---
+
+## How the loop holds together
+
+```mermaid
+flowchart LR
+    A[Account] --> B[Source evidence]
+    B --> C[Research and signals]
+    C --> D[Qualification]
+    D --> E[Mission plan]
+    E --> F[Draft message]
+    F --> G{Human review}
+    G -->|Approve| H[Controlled delivery record]
+    G -->|Revise| F
+    H --> I[Reply]
+    I --> J[Next best action]
+    J --> K[Owned task and account memory]
+```
+
+The model proposes bounded structured decisions. Code owns linear scheduling, state transitions,
+identity, persisted facts, limits, and postconditions. The reviewer owns the external-action
+boundary.
+
+---
+
+## What works today
+
+| Area | Current behavior |
+| --- | --- |
+| Account intelligence | Source evidence, signals, research, contacts, qualification, memory |
+| Missions | Structured planning, bounded execution, continuation, pause/resume/cancel |
+| Message review | Edit, request changes, approve, reject, recorded read-only state |
+| Reply handling | Classification, summary, commitments, linked next action and task |
+| Analytics | Current conversion, qualification mix, source performance |
+| Reliability | Durable state, idempotency, immutable attempt history, deterministic fallback |
+| Provider path | Deterministic mock mode plus a DeepSeek structured-output smoke path |
+
+This repository does not claim real outbound email, production CRM mutation, arbitrary code
+execution, or production-grade security. Those are deliberate boundaries, not hidden gaps.
+
+---
+
+## Quick start
+
+Requirements: Node.js, pnpm, Docker.
 
 ```bash
+git clone https://github.com/shawliu998/Navo.git
+cd Navo
 pnpm run bootstrap
 pnpm run dev:mock
 ```
 
-`bootstrap` installs dependencies, starts PostgreSQL and Redis, waits for them, runs
-migrations, creates `.env.local` from `.env.example` only when it is missing, and seeds only
-an empty workspace. It does not replace an existing environment file or reset existing data.
-Open `http://localhost:3100`, choose **DACH industrial outreach**, review the populated
-mission, and select **Create & start**.
+Open `http://localhost:3100`, choose **DACH industrial outreach**, and follow the prepared demo
+path. `dev:mock` uses deterministic local fixtures and does not require an API key.
 
-In another terminal, check the running Web app, database, Redis and BullMQ worker with:
+For the full environment and provider configuration, see the
+[technical reference](docs/TECHNICAL_REFERENCE.md).
 
-```bash
-pnpm run health
+---
+
+## Verification
+
+| Check | Result |
+| --- | --- |
+| Lint | 7/7 workspace tasks passed |
+| Typecheck | 7/7 workspace tasks passed |
+| Tests | 198 passed, including 13 PostgreSQL integration tests |
+| Product E2E | 15/15 Playwright scenarios passed |
+| Focused UI checks | Inbox and Analytics passed with zero console errors or warnings |
+| Final cross-screen QA | No P0/P1/P2 blockers found across Account, Mission, Approval, Inbox, and Analytics |
+
+The most useful review path is the
+[3–5 minute demo](docs/DEMO_SCRIPT.md). The longer reasoning and test record lives in the
+[portfolio evaluation](docs/PORTFOLIO_EVALUATION.md).
+
+---
+
+## Repository map
+
+```text
+apps/web        Next.js product workspace
+apps/worker     Mission and reply execution
+packages/agents Structured model adapter and agent contracts
+packages/domain Business rules and workflow types
+packages/db     PostgreSQL schema and queries
+packages/workflows Research, signals, qualification, and drafting
+docs            Demo, evaluation, and technical reference
+artifacts       Recruiter-facing screenshots and packaged portfolio
 ```
 
-`pnpm run dev:mock` explicitly forces the deterministic golden path without changing
-`.env.local`. Use `pnpm dev` when you want the provider configured in `.env.local`, such as
-DeepSeek. `pnpm run doctor` performs environment and dependency checks without starting the
-app, and `pnpm run dev:raw` bypasses the preflight when debugging Turbo itself. Local
-development also detects synthetic `198.18/15` DNS proxies so real public websites remain
-researchable without allowing literal benchmark-IP URLs.
+---
 
-The manual equivalent is `pnpm install`, `docker compose up -d`, `pnpm db:migrate`, and
-`pnpm db:seed`. These commands target the local demo PostgreSQL database; `db:seed` changes
-that database and should not be run against data that must be preserved.
+## What it is not
 
-### Existing ExportPlay development databases
+- Not a chat interface with sales screens attached.
+- Not an autonomous sender that bypasses review.
+- Not a generic CRM replacement.
+- Not an agent observability or infrastructure console.
+- Not a claim that every visible capability is production-ready.
 
-Sprint 0.2 renames the Compose project, PostgreSQL database/user and named volumes from
-`exportplay` to `navo`. Docker does not rename volumes in place. The previous
-`exportplay_exportplay-postgres` and `exportplay_exportplay-redis` volumes are therefore
-left untouched, while `docker compose up -d` creates the new `navo_navo-postgres` and
-`navo_navo-redis` volumes. This prevents an automatic, destructive conversion, but the
-new stack initially appears empty until it is seeded or restored.
-
-Before updating a development checkout that contains data worth retaining, create a dump
-while the old stack is running:
-
-```bash
-docker compose exec -T postgres pg_dump -U exportplay -d exportplay -Fc > navo-pre-0.2.dump
-```
-
-After updating, start the renamed stack, run its migrations, then restore without carrying
-the old database owner across:
-
-```bash
-docker compose up -d postgres redis
-pnpm db:migrate
-docker compose exec -T postgres pg_restore -U navo -d navo --clean --if-exists --no-owner --no-privileges < navo-pre-0.2.dump
-```
-
-For disposable demo data, skip the restore and run `pnpm db:seed`. If the old stack is no
-longer running, locate its retained volume with `docker volume ls` and temporarily start
-the prior repository revision to produce the dump. Do not run `docker compose down -v`
-until the backup has been verified. A local `.env.local` that deliberately targets the old
-database may be retained temporarily; the checked-in default now uses
-`postgresql://navo:navo@localhost:54322/navo`.
-
-Validate the workspace with:
-
-```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm e2e
-```
-
-The full validation sequence assumes PostgreSQL and Redis are running, the database has
-been migrated and seeded, the web server is available on port 3100, and the worker is
-running for Mission execution. Playwright writes ignored reports/screenshots on failure;
-review `git status` before committing.
-
-See [PLAN.md](./PLAN.md), [ARCHITECTURE.md](./ARCHITECTURE.md) and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for delivery scope, system boundaries and dependency notices.
+What it is: a concrete study in turning uncertain model output into observable, bounded, and
+testable business behavior.
