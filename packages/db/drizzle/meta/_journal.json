@@ -22,6 +22,76 @@
       "when": 1784200080073,
       "tag": "0002_sad_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784266921862,
+      "tag": "0003_gray_bruce_banner",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784268452114,
+      "tag": "0004_silly_molten_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784276832616,
+      "tag": "0005_steady_rhino",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784277142886,
+      "tag": "0006_nebulous_skrulls",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784279000000,
+      "tag": "0007_majestic_the_stranger",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784290785164,
+      "tag": "0008_lean_captain_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784302860019,
+      "tag": "0009_flaky_champions",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784308242631,
+      "tag": "0010_giant_guardian",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784310500029,
+      "tag": "0011_goofy_speedball",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784340717033,
+      "tag": "0012_goofy_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }

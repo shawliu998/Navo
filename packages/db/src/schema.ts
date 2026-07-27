@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { boolean, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 const tenantColumns = () => ({
@@ -14,7 +15,7 @@ export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(), email: text("email").notNull().unique(), name: text("name").notNull(), passwordHash: text("password_hash"), locale: text("locale").default("zh-CN").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 export const workspaces = pgTable("workspaces", {
-  id: uuid("id").defaultRandom().primaryKey(), name: text("name").notNull(), slug: text("slug").notNull().unique(), plan: text("plan").default("DEMO").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(), revision: integer("revision").default(1).notNull(),
+  id: uuid("id").defaultRandom().primaryKey(), name: text("name").notNull(), slug: text("slug").notNull().unique(), plan: text("plan").default("DEMO").notNull(), website: text("website"), descriptionZh: text("description_zh"), descriptionEn: text("description_en"), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(), revision: integer("revision").default(1).notNull(),
 });
 export const workspaceMembers = pgTable("workspace_members", { ...tenantColumns(), userId: uuid("user_id").notNull(), role: text("role").notNull() }, (table) => [uniqueIndex("workspace_member_unique").on(table.workspaceId, table.userId)]);
 export const sessions = pgTable("sessions", { id: uuid("id").defaultRandom().primaryKey(), userId: uuid("user_id").notNull(), tokenHash: text("token_hash").notNull().unique(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull() });
@@ -32,11 +33,27 @@ export const brandRules = simpleTenantTable("brand_rules");
 export const accounts = pgTable("accounts", { ...tenantColumns(), name: text("name").notNull(), domain: text("domain"), website: text("website"), country: text("country"), industry: text("industry"), employeeRange: text("employee_range"), fitScore: integer("fit_score"), qualification: text("qualification").default("NOT_RESEARCHED").notNull(), playStatus: text("play_status").default("NOT_STARTED").notNull(), source: text("source").default("DEMO").notNull(), ownerName: text("owner_name"), lastResearchedAt: timestamp("last_researched_at", { withTimezone: true }), summary: text("summary"), riskSummary: text("risk_summary"), suppressed: boolean("suppressed").default(false).notNull() }, (table) => [uniqueIndex("accounts_workspace_domain_unique").on(table.workspaceId, table.domain), index("accounts_workspace_qualification_idx").on(table.workspaceId, table.qualification, table.updatedAt)]);
 export const tags = simpleTenantTable("tags");
 export const accountTags = simpleTenantTable("account_tags");
-export const contacts = pgTable("contacts", { ...tenantColumns(), accountId: uuid("account_id").notNull(), name: text("name").notNull(), title: text("title"), persona: text("persona"), email: text("email"), emailVerification: text("email_verification").default("UNKNOWN").notNull(), status: text("status").default("NEW").notNull(), source: text("source").default("DEMO").notNull(), lastContactedAt: timestamp("last_contacted_at", { withTimezone: true }), suppressed: boolean("suppressed").default(false).notNull() });
-export const signals = pgTable("signals", { ...tenantColumns(), accountId: uuid("account_id").notNull(), type: text("type").notNull(), summary: text("summary").notNull(), confidence: numeric("confidence", { precision: 4, scale: 3 }), detectedAt: timestamp("detected_at", { withTimezone: true }).defaultNow().notNull(), status: text("status").default("NEW").notNull(), triggeredPlayId: uuid("triggered_play_id"), ownerName: text("owner_name") });
+export const contacts = pgTable("contacts", {
+  ...tenantColumns(),
+  accountId: uuid("account_id").notNull(),
+  missionId: uuid("mission_id"),
+  name: text("name").notNull(),
+  title: text("title"),
+  persona: text("persona"),
+  email: text("email"),
+  emailVerification: text("email_verification").default("UNKNOWN").notNull(),
+  status: text("status").default("NEW").notNull(),
+  source: text("source").default("DEMO").notNull(),
+  sourceUrl: text("source_url"),
+  sourceQuote: text("source_quote"),
+  confidence: numeric("confidence", { precision: 4, scale: 3 }),
+  lastContactedAt: timestamp("last_contacted_at", { withTimezone: true }),
+  suppressed: boolean("suppressed").default(false).notNull(),
+}, (table) => [index("contacts_workspace_mission_idx").on(table.workspaceId, table.missionId, table.accountId)]);
+export const signals = pgTable("signals", { ...tenantColumns(), accountId: uuid("account_id").notNull(), missionId: uuid("mission_id"), type: text("type").notNull(), summary: text("summary").notNull(), rationale: text("rationale"), evidenceUrls: jsonb("evidence_urls").default([]).notNull(), confidence: numeric("confidence", { precision: 4, scale: 3 }), priority: text("priority").default("MEDIUM").notNull(), detectedAt: timestamp("detected_at", { withTimezone: true }).defaultNow().notNull(), status: text("status").default("NEW").notNull(), triggeredPlayId: uuid("triggered_play_id"), ownerName: text("owner_name") });
 export const evidence = pgTable("evidence", { ...tenantColumns(), accountId: uuid("account_id").notNull(), type: text("type").notNull(), title: text("title").notNull(), summary: text("summary").notNull(), quote: text("quote"), sourceUrl: text("source_url"), pageTitle: text("page_title"), observedAt: timestamp("observed_at", { withTimezone: true }).notNull(), fetchedAt: timestamp("fetched_at", { withTimezone: true }).defaultNow().notNull(), confidence: numeric("confidence", { precision: 4, scale: 3 }).notNull(), accessible: boolean("accessible").default(true).notNull(), contentHash: text("content_hash"), metadata: jsonb("metadata").default({}).notNull() }, (table) => [index("evidence_workspace_account_idx").on(table.workspaceId, table.accountId, table.observedAt)]);
 export const inferences = pgTable("inferences", { ...tenantColumns(), accountId: uuid("account_id").notNull(), statement: text("statement").notNull(), evidenceIds: jsonb("evidence_ids").default([]).notNull(), confidence: numeric("confidence", { precision: 4, scale: 3 }).notNull(), agentVersion: text("agent_version").notNull() });
-export const qualificationResults = pgTable("qualification_results", { ...tenantColumns(), accountId: uuid("account_id").notNull(), score: integer("score").notNull(), status: text("status").notNull(), scoreBreakdown: jsonb("score_breakdown").notNull(), reasons: jsonb("reasons").default([]).notNull(), risks: jsonb("risks").default([]).notNull(), evidenceIds: jsonb("evidence_ids").default([]).notNull(), inferenceIds: jsonb("inference_ids").default([]).notNull(), confidence: numeric("confidence", { precision: 4, scale: 3 }).notNull() });
+export const qualificationResults = pgTable("qualification_results", { ...tenantColumns(), accountId: uuid("account_id").notNull(), missionId: uuid("mission_id"), score: integer("score").notNull(), status: text("status").notNull(), scoreBreakdown: jsonb("score_breakdown").notNull(), reasons: jsonb("reasons").default([]).notNull(), risks: jsonb("risks").default([]).notNull(), evidenceIds: jsonb("evidence_ids").default([]).notNull(), inferenceIds: jsonb("inference_ids").default([]).notNull(), recommendedAction: text("recommended_action"), confidence: numeric("confidence", { precision: 4, scale: 3 }).notNull() });
 export const accountOwners = simpleTenantTable("account_owners");
 export const importJobs = simpleTenantTable("import_jobs");
 export const importRows = simpleTenantTable("import_rows");
@@ -58,12 +75,20 @@ export const agentProfiles = pgTable("agent_profiles", {
   name: text("name").default("Navo Growth Agent").notNull(),
   purpose: text("purpose").notNull(),
   status: text("status").default("IDLE").notNull(),
-  operatingMode: text("operating_mode").default("APPROVAL_CONTROLLED").notNull(),
+  operatingMode: text("operating_mode").default("AUTONOMOUS").notNull(),
   knowledgeHealth: integer("knowledge_health").default(0).notNull(),
   connectedTools: jsonb("connected_tools").default([]).notNull(),
   capabilities: jsonb("capabilities").default([]).notNull(),
   currentActivity: text("current_activity"),
   lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  directorEnabled: boolean("director_enabled").default(false).notNull(),
+  directorIntervalMinutes: integer("director_interval_minutes").default(15).notNull(),
+  directorCooldownMinutes: integer("director_cooldown_minutes").default(60).notNull(),
+  directorMaxActiveMissions: integer("director_max_active_missions").default(1).notNull(),
+  directorDailyMissionLimit: integer("director_daily_mission_limit").default(3).notNull(),
+  lastDirectorDecisionAt: timestamp("last_director_decision_at", { withTimezone: true }),
+  nextDirectorTickAt: timestamp("next_director_tick_at", { withTimezone: true }),
+  lastDirectorDecision: jsonb("last_director_decision").default({}).notNull(),
 }, (table) => [uniqueIndex("agent_profile_workspace_unique").on(table.workspaceId)]);
 
 export const agentMissions = pgTable("agent_missions", {
@@ -90,11 +115,40 @@ export const agentMissions = pgTable("agent_missions", {
   testMode: boolean("test_mode").default(true).notNull(),
   stopConditions: jsonb("stop_conditions").default([]).notNull(),
   targetCriteria: jsonb("target_criteria").default({}).notNull(),
+  plan: jsonb("plan").default({}).notNull(),
+  workingMemory: jsonb("working_memory").default({}).notNull(),
+  result: jsonb("result").default({}).notNull(),
+  error: text("error"),
+  iteration: integer("iteration").default(0).notNull(),
+  maximumIterations: integer("maximum_iterations").default(20).notNull(),
+  replanCount: integer("replan_count").default(0).notNull(),
+  retryOfMissionId: uuid("retry_of_mission_id"),
+  parentMissionId: uuid("parent_mission_id"),
+  rootMissionId: uuid("root_mission_id"),
+  continuationDepth: integer("continuation_depth").default(0).notNull(),
+  maximumContinuations: integer("maximum_continuations").default(0).notNull(),
+  autoContinue: boolean("auto_continue").default(false).notNull(),
+  directorTickId: uuid("director_tick_id"),
+  replySourceMessageId: uuid("reply_source_message_id"),
+  targetAccountId: uuid("target_account_id"),
+  provider: text("provider"),
+  model: text("model"),
+  plannerMode: text("planner_mode").default("AI").notNull(),
+  plannerFallbackReason: text("planner_fallback_reason"),
+  queuedAt: timestamp("queued_at", { withTimezone: true }),
   startedAt: timestamp("started_at", { withTimezone: true }),
   dueAt: timestamp("due_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
-}, (table) => [index("agent_missions_workspace_status_idx").on(table.workspaceId, table.status, table.updatedAt)]);
+}, (table) => [
+  index("agent_missions_workspace_status_idx").on(table.workspaceId, table.status, table.updatedAt),
+  index("agent_missions_workspace_retry_of_idx").on(table.workspaceId, table.retryOfMissionId, table.updatedAt),
+  index("agent_missions_workspace_root_idx").on(table.workspaceId, table.rootMissionId, table.continuationDepth),
+  uniqueIndex("agent_missions_parent_unique").on(table.workspaceId, table.parentMissionId).where(sql`"parent_mission_id" IS NOT NULL`),
+  uniqueIndex("agent_missions_director_tick_unique").on(table.workspaceId, table.directorTickId).where(sql`"director_tick_id" IS NOT NULL`),
+  uniqueIndex("agent_missions_reply_source_unique").on(table.workspaceId, table.replySourceMessageId).where(sql`"reply_source_message_id" IS NOT NULL`),
+  uniqueIndex("agent_missions_active_retry_unique").on(table.workspaceId, table.retryOfMissionId).where(sql`"retry_of_mission_id" IS NOT NULL AND "status" NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')`),
+]);
 
 export const agentMissionTargets = pgTable("agent_mission_targets", {
   ...tenantColumns(),
@@ -190,7 +244,7 @@ export const conversations = pgTable("conversations", {
   lastMessageAt: timestamp("last_message_at", { withTimezone: true }).defaultNow().notNull(),
   unreadCount: integer("unread_count").default(0).notNull(),
 }, (table) => [index("conversations_workspace_account_idx").on(table.workspaceId, table.accountId, table.lastMessageAt)]);
-export const messages = pgTable("messages", { ...tenantColumns(), conversationId: uuid("conversation_id"), accountId: uuid("account_id").notNull(), contactId: uuid("contact_id"), sequenceId: uuid("sequence_id"), runId: uuid("run_id"), approvalId: uuid("approval_id"), inReplyToMessageId: uuid("in_reply_to_message_id"), direction: text("direction").default("OUTBOUND").notNull(), channel: text("channel").default("EMAIL").notNull(), providerMessageId: text("provider_message_id"), subject: text("subject").notNull(), body: text("body").notNull(), originalSubject: text("original_subject"), originalBody: text("original_body"), status: text("status").default("DRAFT").notNull(), sentAt: timestamp("sent_at", { withTimezone: true }), receivedAt: timestamp("received_at", { withTimezone: true }), replyClassification: text("reply_classification"), evidenceIds: jsonb("evidence_ids").default([]).notNull(), claimsUsed: jsonb("claims_used").default([]).notNull(), idempotencyKey: text("idempotency_key") }, (table) => [uniqueIndex("message_idempotency_unique").on(table.workspaceId, table.idempotencyKey), index("messages_conversation_idx").on(table.workspaceId, table.conversationId, table.createdAt)]);
+export const messages = pgTable("messages", { ...tenantColumns(), conversationId: uuid("conversation_id"), accountId: uuid("account_id").notNull(), missionId: uuid("mission_id"), contactId: uuid("contact_id"), sequenceId: uuid("sequence_id"), runId: uuid("run_id"), approvalId: uuid("approval_id"), inReplyToMessageId: uuid("in_reply_to_message_id"), direction: text("direction").default("OUTBOUND").notNull(), channel: text("channel").default("EMAIL").notNull(), providerMessageId: text("provider_message_id"), subject: text("subject").notNull(), body: text("body").notNull(), originalSubject: text("original_subject"), originalBody: text("original_body"), status: text("status").default("DRAFT").notNull(), sentAt: timestamp("sent_at", { withTimezone: true }), receivedAt: timestamp("received_at", { withTimezone: true }), replyClassification: text("reply_classification"), evidenceIds: jsonb("evidence_ids").default([]).notNull(), claimsUsed: jsonb("claims_used").default([]).notNull(), idempotencyKey: text("idempotency_key") }, (table) => [uniqueIndex("message_idempotency_unique").on(table.workspaceId, table.idempotencyKey), index("messages_conversation_idx").on(table.workspaceId, table.conversationId, table.createdAt)]);
 export const messageEvents = pgTable("message_events", { ...tenantColumns(), messageId: uuid("message_id").notNull(), eventType: text("event_type").notNull(), eventAt: timestamp("event_at", { withTimezone: true }).defaultNow().notNull(), providerEventId: text("provider_event_id"), metadata: jsonb("metadata").default({}).notNull() });
 export const messageClassifications = pgTable("message_classifications", {
   ...tenantColumns(),
@@ -223,12 +277,16 @@ export const manualTasks = simpleTenantTable("manual_tasks");
 export const memoryFacts = pgTable("memory_facts", {
   ...tenantColumns(),
   accountId: uuid("account_id").notNull(),
+  missionId: uuid("mission_id"),
   contactId: uuid("contact_id"),
   conversationId: uuid("conversation_id"),
   category: text("category").notNull(),
   fact: text("fact").notNull(),
   confidence: numeric("confidence", { precision: 4, scale: 3 }).notNull(),
-  sourceMessageId: uuid("source_message_id").notNull(),
+  sourceType: text("source_type").default("MESSAGE").notNull(),
+  sourceId: uuid("source_id"),
+  evidenceIds: jsonb("evidence_ids").default([]).notNull(),
+  sourceMessageId: uuid("source_message_id"),
   status: text("status").default("ACTIVE").notNull(),
   validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
   supersededBy: uuid("superseded_by"),
@@ -250,6 +308,7 @@ export const nextActionProposals = pgTable("next_action_proposals", {
 export const tasks = pgTable("tasks", {
   ...tenantColumns(),
   accountId: uuid("account_id"),
+  missionId: uuid("mission_id"),
   contactId: uuid("contact_id"),
   conversationId: uuid("conversation_id"),
   nextActionProposalId: uuid("next_action_proposal_id"),

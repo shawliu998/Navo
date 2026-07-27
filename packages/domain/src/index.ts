@@ -6,3 +6,4 @@ export * from "./policy";
 export * from "./rbac";
 export * from "./csv";
 export * from "./reply";
+export * from "./inbound-webhook";

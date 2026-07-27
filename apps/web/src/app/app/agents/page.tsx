@@ -1,94 +1,83 @@
 import Link from "next/link";
-import { Activity, AlertTriangle, Bot, Braces, CheckCircle2, Clock3, Cpu, DollarSign } from "lucide-react";
-import { DEMO_WORKSPACE_ID, getRun, getRuns } from "@navo/db/queries";
+import { Activity, Bot, CheckCircle2, Clock3, Cpu, Target } from "lucide-react";
+import { DEMO_WORKSPACE_ID, getAgentStatus, getMission, getMissions } from "@navo/db/queries";
 import { Badge, MetricCard, PageHeader, StatusBadge } from "@navo/ui";
+import { DirectorConfigForm } from "@/components/director-config-form";
 
 export const metadata = { title: "Capabilities" };
 
-type Capability = {
-  id: string;
-  label: string;
-  attempts: number;
-  completed: number;
-  failed: number;
-  durationMs: number;
-  durationSamples: number;
-  cost: number;
-  providers: Set<string>;
-  models: Set<string>;
-  promptVersions: Set<string>;
-  latestAt: Date | null;
-};
+function formatDate(value: Date | null | undefined) {
+  return value ? value.toLocaleString() : "Not scheduled";
+}
+
+function directorDecision(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const decision = value as { action?: unknown; reason?: unknown };
+  return {
+    action: typeof decision.action === "string" ? decision.action.replaceAll("_", " ") : "No decision yet",
+    reason: typeof decision.reason === "string" ? decision.reason : null,
+  };
+}
 
 export default async function CapabilitiesPage() {
-  const runs = await getRuns(DEMO_WORKSPACE_ID);
-  const details = await Promise.all(runs.map(({ run }) => getRun(DEMO_WORKSPACE_ID, run.id)));
-  const capabilities = new Map<string, Capability>();
-
+  const [missions, agent] = await Promise.all([getMissions(DEMO_WORKSPACE_ID), getAgentStatus(DEMO_WORKSPACE_ID)]);
+  const details = await Promise.all(missions.slice(0, 30).map((mission) => getMission(DEMO_WORKSPACE_ID, mission.id)));
+  const observed = new Map<string, { label: string; attempts: number; completed: number; failed: number; skipped: number; providers: Set<string>; lastMissionId: string }>();
   for (const detail of details) {
     if (!detail) continue;
-    for (const node of detail.nodes) {
-      const current = capabilities.get(node.logicalNodeId) ?? {
-        id: node.logicalNodeId,
-        label: node.nodeLabel,
-        attempts: 0,
-        completed: 0,
-        failed: 0,
-        durationMs: 0,
-        durationSamples: 0,
-        cost: 0,
-        providers: new Set<string>(),
-        models: new Set<string>(),
-        promptVersions: new Set<string>(),
-        latestAt: null,
-      };
-      current.attempts += 1;
-      current.completed += node.status === "COMPLETED" ? 1 : 0;
-      current.failed += node.status === "FAILED" ? 1 : 0;
-      if (node.durationMs != null) {
-        current.durationMs += node.durationMs;
-        current.durationSamples += 1;
-      }
-      current.cost += Number(node.estimatedCost ?? 0);
-      if (node.provider) current.providers.add(node.provider);
-      if (node.model) current.models.add(node.model);
-      if (node.promptVersion) current.promptVersions.add(node.promptVersion);
-      if (node.startedAt && (!current.latestAt || node.startedAt > current.latestAt)) current.latestAt = node.startedAt;
-      capabilities.set(node.logicalNodeId, current);
+    for (const step of detail.steps) {
+      const id = step.relatedPlayNodeId ?? step.title;
+      const item = observed.get(id) ?? { label: step.title, attempts: 0, completed: 0, failed: 0, skipped: 0, providers: new Set<string>(), lastMissionId: detail.mission.id };
+      item.attempts += ["COMPLETED", "FAILED", "SKIPPED"].includes(step.status) ? 1 : 0;
+      item.completed += step.status === "COMPLETED" ? 1 : 0;
+      item.failed += step.status === "FAILED" ? 1 : 0;
+      item.skipped += step.status === "SKIPPED" ? 1 : 0;
+      if (detail.mission.provider) item.providers.add(detail.mission.provider);
+      item.lastMissionId = detail.mission.id;
+      observed.set(id, item);
     }
   }
-
-  const items = [...capabilities.values()].sort((a, b) => b.attempts - a.attempts || a.label.localeCompare(b.label));
-  const totalAttempts = items.reduce((sum, item) => sum + item.attempts, 0);
-  const completedAttempts = items.reduce((sum, item) => sum + item.completed, 0);
-  const totalCost = items.reduce((sum, item) => sum + item.cost, 0);
-  const providerCount = new Set(items.flatMap((item) => [...item.providers])).size;
+  const items = [...observed.entries()].sort((a, b) => b[1].attempts - a[1].attempts || a[1].label.localeCompare(b[1].label));
+  const attempts = items.reduce((sum, [, item]) => sum + item.attempts, 0);
+  const completed = items.reduce((sum, [, item]) => sum + item.completed, 0);
+  const missionTypes = new Set(missions.map((mission) => mission.type)).size;
+  const profile = agent.profile;
+  const decision = directorDecision(profile?.lastDirectorDecision);
 
   return <div className="page">
-    <PageHeader eyebrow="RUNTIME INTELLIGENCE" title="Capabilities" description="Navo 实际执行过的结构化能力。成功率、耗时、成本和 Provider 均由可审计的 Node Run 计算。" actions={<Link className="button button-secondary" href="/app/runs"><Activity size={15}/>查看全部运行</Link>}/>
+    <PageHeader eyebrow="MISSION RUNTIME" title="Capabilities" description="Capabilities observed from immutable Mission plans and their registered execution steps. Legacy Play node runs are intentionally excluded." actions={<Link className="button button-primary" href="/app/missions/new"><Target size={15}/>Create mission</Link>}/>
     <section className="metrics-grid">
-      <MetricCard label="Observed capabilities" value={items.length} helper={`${runs.length} runs sampled`} icon={<Bot size={14}/>}/>
-      <MetricCard label="Node attempts" value={totalAttempts} helper="Includes retry attempts" icon={<Activity size={14}/>}/>
-      <MetricCard label="Completion rate" value={`${Math.round(completedAttempts / Math.max(totalAttempts, 1) * 100)}%`} helper={`${completedAttempts} completed`} icon={<CheckCircle2 size={14}/>}/>
-      <MetricCard label="Observed cost" value={`$${totalCost.toFixed(3)}`} helper={`${providerCount} providers`} icon={<DollarSign size={14}/>}/>
+      <MetricCard label="Observed capabilities" value={items.length} helper={`${missions.length} missions sampled`} icon={<Bot size={14}/>}/>
+      <MetricCard label="Executed steps" value={attempts} helper="Completed, failed or skipped" icon={<Activity size={14}/>}/>
+      <MetricCard label="Completion rate" value={`${Math.round(completed / Math.max(attempts, 1) * 100)}%`} helper={`${completed} completed`} icon={<CheckCircle2 size={14}/>}/>
+      <MetricCard label="Mission types" value={missionTypes} helper="Observed runtime scopes" icon={<Target size={14}/>}/>
     </section>
-    {items.length === 0 ? <div className="empty-state"><Bot/><strong>尚无能力运行数据</strong><p>执行 Playbook 后，Node Run 将在此形成可审计的能力记录。</p></div> : <div className="integration-grid">{items.map((item) => {
-      const successRate = Math.round(item.completed / Math.max(item.attempts, 1) * 100);
-      const averageDuration = item.durationSamples ? item.durationMs / item.durationSamples : null;
-      const status = item.failed > 0 ? "REVIEW" : item.completed > 0 ? "ACTIVE" : "WAITING";
-      return <article className="integration-card" key={item.id}>
-        <div className="integration-icon"><Cpu size={18}/></div>
-        <div className="card-header"><div><h3>{item.label}</h3><small className="muted mono">{item.id}</small></div><StatusBadge status={status}/></div>
-        <div className="guardrail-item"><small>Completion / attempts</small><strong>{successRate}% · {item.completed}/{item.attempts}</strong></div>
-        <div className="guardrail-item"><small>Average duration / observed cost</small><strong>{averageDuration == null ? "No duration" : averageDuration >= 1000 ? `${(averageDuration / 1000).toFixed(1)}s` : `${Math.round(averageDuration)}ms`} · ${item.cost.toFixed(3)}</strong></div>
-        <div className="guardrail-item"><small>Provider / model</small><strong>{[...item.providers].join(", ") || "Deterministic"}</strong><span className="muted">{[...item.models].join(", ") || "No model recorded"}</span></div>
-        <div className="toolbar-group" style={{marginTop: 12, flexWrap: "wrap"}}>
-          {item.promptVersions.size > 0 && <Badge tone="neutral"><Braces size={11}/>{[...item.promptVersions].join(", ")}</Badge>}
-          {item.failed > 0 ? <Badge tone="warning"><AlertTriangle size={11}/>{item.failed} failed</Badge> : <Badge tone="success"><CheckCircle2 size={11}/>No failures</Badge>}
-          {item.latestAt && <Badge tone="neutral"><Clock3 size={11}/>{item.latestAt.toLocaleDateString("zh-CN")}</Badge>}
-        </div>
-      </article>;
-    })}</div>}
-    <div className="alert alert-info" style={{marginTop: 14}}><Braces size={16}/><span>同一节点的 Retry 作为新 attempt 计入指标，不会覆盖原始输入、输出或错误。</span></div>
+    <section className="card" style={{ marginBottom: 14 }}>
+      <div className="card-header">
+        <div><h2>Agent Director</h2><span className="card-subtitle">Autonomous root-Mission scheduling and guardrails</span></div>
+        <Badge tone={profile?.directorEnabled ? "success" : "neutral"}>{profile?.directorEnabled ? "Enabled" : "Disabled"}</Badge>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+        <div className="guardrail-item"><small>Last decision</small><strong style={{ textTransform: "capitalize" }}>{decision?.action ?? "No decision yet"}</strong><span className="muted">{decision?.reason ?? "The Director has not evaluated this workspace."}</span></div>
+        <div className="guardrail-item"><small>Next tick</small><strong>{formatDate(profile?.nextDirectorTickAt)}</strong><span className="muted"><Clock3 size={12} /> Scheduled by the worker</span></div>
+        <div className="guardrail-item"><small>Interval / cooldown</small><strong>{profile?.directorIntervalMinutes ?? 15}m / {profile?.directorCooldownMinutes ?? 60}m</strong><span className="muted">Checks / new-root Mission pause</span></div>
+        <div className="guardrail-item"><small>Daily limit</small><strong>{profile?.directorDailyMissionLimit ?? 3} root Missions</strong><span className="muted">Max {profile?.directorMaxActiveMissions ?? 1} active at once</span></div>
+      </div>
+      <DirectorConfigForm initialConfig={{
+        enabled: profile?.directorEnabled ?? false,
+        intervalMinutes: profile?.directorIntervalMinutes ?? 15,
+        cooldownMinutes: profile?.directorCooldownMinutes ?? 60,
+        maxActiveMissions: profile?.directorMaxActiveMissions ?? 1,
+        dailyMissionLimit: profile?.directorDailyMissionLimit ?? 3,
+      }} />
+    </section>
+    {items.length ? <div className="integration-grid">{items.map(([id, item]) => <article className="integration-card" key={id}>
+      <div className="integration-icon"><Cpu size={18}/></div>
+      <div className="card-header"><div><h3>{item.label}</h3><small className="muted mono">{id}</small></div><StatusBadge status={item.failed ? "REVIEW" : item.completed ? "ACTIVE" : "WAITING"}/></div>
+      <div className="guardrail-item"><small>Completed / attempts</small><strong>{item.completed}/{item.attempts}</strong></div>
+      <div className="guardrail-item"><small>Skipped / failed</small><strong>{item.skipped} / {item.failed}</strong></div>
+      <div className="guardrail-item"><small>Providers</small><strong>{[...item.providers].join(", ") || "Not executed"}</strong></div>
+      <div className="toolbar-group" style={{marginTop:12}}><Badge tone="neutral">Mission step</Badge><Link className="muted" href={`/app/missions/${item.lastMissionId}`}>Latest mission</Link></div>
+    </article>)}</div> : <div className="empty-state"><Bot/><strong>No Mission capability data yet</strong><p>Create and run a Mission to observe registered capabilities.</p></div>}
   </div>;
 }

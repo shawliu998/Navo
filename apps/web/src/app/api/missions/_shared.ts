@@ -1,23 +1,33 @@
 import { z } from "zod";
+import { missionPlanSchema, type MissionPlan } from "@navo/agents";
 
 export const missionInputSchema = z.object({
   name: z.string().trim().min(3).max(160),
   type: z.string().trim().min(2).max(80).optional(),
   objective: z.string().trim().min(8).max(2_000),
   desiredOutcome: z.string().trim().max(1_000).optional(),
-  status: z.enum(["DRAFT", "PLANNING", "ACTIVE"]).optional(),
-  operatingMode: z.enum(["OBSERVE", "RECOMMEND", "APPROVAL_CONTROLLED"]).optional(),
+  status: z.enum(["DRAFT", "PLANNING", "READY", "RUNNING", "ACTIVE"]).optional(),
+  operatingMode: z.enum(["AUTONOMOUS", "OBSERVE", "RECOMMEND", "APPROVAL_CONTROLLED"]).optional(),
   playId: z.string().uuid().optional(),
   inputSource: z.string().trim().max(80).optional(),
   approvalPolicy: z.string().trim().max(80).optional(),
   accountIds: z.array(z.string().uuid()).max(100).optional(),
   targetCount: z.number().int().min(0).max(1_000).optional(),
   maximumAccounts: z.number().int().min(1).max(1_000).optional(),
+  maximumIterations: z.number().int().min(1).max(100).optional(),
+  maximumContinuations: z.number().int().min(0).max(10).optional(),
+  autoContinue: z.boolean().optional(),
   estimatedCostLimit: z.number().min(0).max(10_000).optional(),
   testMode: z.boolean().optional(),
   dueAt: z.string().datetime().optional(),
   targetCriteria: z.record(z.string(), z.unknown()).optional(),
   stopConditions: z.array(z.unknown()).max(20).optional(),
+  targetAccountId: z.string().uuid().optional(),
+  plan: missionPlanSchema.optional(),
+  provider: z.string().trim().min(1).max(100).optional(),
+  model: z.string().trim().min(1).max(200).optional(),
+  plannerMode: z.enum(["AI", "DETERMINISTIC_FALLBACK"]).optional(),
+  fallbackReason: z.string().trim().max(2_000).nullable().optional(),
 });
 
 export const missionPatchSchema = missionInputSchema.pick({
@@ -73,5 +83,27 @@ export function deterministicCommandProposal(command: string) {
     operatingMode: "APPROVAL_CONTROLLED" as const,
     testMode: true,
     deterministic: true,
+  };
+}
+
+export function missionPlanProposal(plan: MissionPlan) {
+  return {
+    name: plan.name,
+    objective: plan.objective,
+    missionType: plan.missionType,
+    targetScope: plan.targetDescription,
+    inputSource: "DEMO_ACCOUNTS",
+    recommendedPlaybook: "Target Account Outreach with Policy Check",
+    planSteps: plan.steps.map((step) => step.title),
+    expectedOutputs: plan.expectedOutputs,
+    estimatedAccounts: 3,
+    estimatedCost: 0.012,
+    riskLevel: "LOW",
+    approvalRequirements: ["This mission saves a DRAFT only and never sends email."],
+    operatingMode: "AUTONOMOUS" as const,
+    testMode: true,
+    deterministic: false,
+    assumptions: plan.assumptions,
+    plan,
   };
 }

@@ -1,0 +1,2 @@
+ALTER TABLE "agent_missions" ADD COLUMN "reply_source_message_id" uuid;--> statement-breakpoint
+CREATE UNIQUE INDEX "agent_missions_reply_source_unique" ON "agent_missions" USING btree ("workspace_id","reply_source_message_id") WHERE "reply_source_message_id" IS NOT NULL;

@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": { ".": "./src/index.ts", "./registry": "./src/registry.ts", "./tools": "./src/tools/index.ts", "./mission-executor": "./src/mission-executor.ts", "./website-research": "./src/website-research/index.ts", "./website-research/fixture": "./src/website-research/fixture.ts", "./mission-planner": "./src/mission-planner.ts" },
   "scripts": { "build": "tsc --noEmit", "lint": "tsc --noEmit", "typecheck": "tsc --noEmit", "test": "vitest run" },
-  "dependencies": { "@navo/agents": "workspace:*", "@navo/domain": "workspace:*", "zod": "^4.4.3" },
-  "devDependencies": { "typescript": "^5.8.3", "vitest": "^3.2.4" }
+  "dependencies": { "@navo/agents": "workspace:*", "@navo/domain": "workspace:*", "node-html-parser": "^9.0.0", "zod": "^4.4.3" },
+  "devDependencies": { "@types/node": "^22.20.1", "typescript": "^5.8.3", "vitest": "^3.2.4" }
 }

@@ -13,7 +13,7 @@ export default async function IntegrationsPage() {
   const synced = tools.filter((tool) => tool.lastSyncAt);
 
   return <div className="page">
-    <PageHeader eyebrow="RUNTIME TOOLS" title="Tool Status" description="Navo 可在 Mission 中调用的已配置适配器。状态、权限和最后活动直接来自工作区连接记录。"/>
+    <PageHeader eyebrow="RUNTIME TOOLS" title="Tool Status" description="Configured adapters available to a Mission. Status, access, and recent activity come from workspace connection records."/>
     <section className="metrics-grid">
       <MetricCard label="Registered tools" value={tools.length} helper="Workspace scoped" icon={<Wrench size={14}/>}/>
       <MetricCard label="Available" value={available.length} helper="Connected or configured" icon={<CheckCircle2 size={14}/>}/>
@@ -28,7 +28,7 @@ export default async function IntegrationsPage() {
         <div className="card-header"><div><h3>{tool.provider}</h3><Badge tone="neutral">{tool.category}</Badge></div><StatusBadge status={tool.status}/></div>
         <p>{tool.category === "EMAIL" ? "Controlled development delivery channel" : tool.category === "AI" ? "Server-side structured generation provider" : "Deterministic research and extraction adapter"}</p>
         <div className="guardrail-item"><small>Granted capabilities</small><strong>{permissions.length ? permissions.join(", ") : "None"}</strong></div>
-        <div className="guardrail-item"><small>Last activity</small><strong>{tool.lastSyncAt ? tool.lastSyncAt.toLocaleString("zh-CN") : "No activity recorded"}</strong></div>
+        <div className="guardrail-item"><small>Last activity</small><strong>{tool.lastSyncAt ? tool.lastSyncAt.toLocaleString("en-US") : "No activity recorded"}</strong></div>
         <div className="toolbar-group" style={{marginTop: 12, flexWrap: "wrap"}}>
           {config.serverOnly === true && <Badge tone="success"><ShieldCheck size={11}/>Server only</Badge>}
           {config.deterministic === true && <Badge tone="info">Deterministic</Badge>}
@@ -36,6 +36,6 @@ export default async function IntegrationsPage() {
         </div>
       </article>;
     })}</div>
-    <div className="alert alert-info" style={{marginTop: 14}}><ShieldCheck size={16}/><span>本页仅展示数据库中已注册的工具；不对未连接的外部服务做可用性承诺。</span></div>
+    <div className="alert alert-info" style={{marginTop: 14}}><ShieldCheck size={16}/><span>This page shows registered tools only. It makes no availability claim for services that are not connected.</span></div>
   </div>;
 }

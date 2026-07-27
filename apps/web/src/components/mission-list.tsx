@@ -12,9 +12,9 @@ export type MissionListItem = {
 };
 
 const filters = [
-  { label: "Active", statuses: ["ACTIVE"] }, { label: "Waiting", statuses: ["WAITING"] },
-  { label: "Completed", statuses: ["COMPLETED"] }, { label: "Draft", statuses: ["DRAFT", "PLANNING"] },
-  { label: "Paused", statuses: ["PAUSED"] },
+  { label: "Active", statuses: ["ACTIVE", "RUNNING"] }, { label: "Waiting", statuses: ["WAITING"] },
+  { label: "Completed", statuses: ["COMPLETED"] }, { label: "Draft", statuses: ["DRAFT", "PLANNING", "READY"] },
+  { label: "Paused", statuses: ["PAUSED"] }, { label: "Failed", statuses: ["FAILED"] },
 ] as const;
 
 export function MissionList({ missions, current }: { missions: MissionListItem[]; current?: string }) {

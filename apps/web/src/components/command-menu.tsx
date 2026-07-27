@@ -10,14 +10,12 @@ import {
   Command,
   FileText,
   ListChecks,
-  Loader2,
   MessageSquareText,
   Search,
   Sparkles,
   Target,
   TriangleAlert,
 } from "lucide-react";
-import type { AgentCommandProposal } from "./agent-command-composer";
 
 type CommandAction = {
   label: string;
@@ -101,8 +99,6 @@ function getPageContext(pathname: string) {
 export function CommandMenu() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [proposal, setProposal] = useState<AgentCommandProposal | null>(null);
-  const [requestState, setRequestState] = useState<"idle" | "previewing" | "creating">("idle");
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -126,7 +122,6 @@ export function CommandMenu() {
           setOpen(false);
         } else {
           setQuery("");
-          setProposal(null);
           setError(null);
           setOpen(true);
         }
@@ -168,49 +163,14 @@ export function CommandMenu() {
     router.push(href);
   };
 
-  const submitCommand = async () => {
+  const submitCommand = () => {
     const trimmed = query.trim();
     if (trimmed.length < 8) {
       setError("Describe the outcome in at least 8 characters.");
       return;
     }
-    setRequestState("previewing");
     setError(null);
-    try {
-      const response = await fetch("/api/agent/commands/preview", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ command: trimmed }),
-      });
-      const payload = (await response.json().catch(() => null)) as { data?: AgentCommandProposal; error?: { message?: string } } | null;
-      if (!response.ok || !payload?.data) throw new Error(payload?.error?.message ?? "Navo could not prepare this proposal.");
-      setProposal(payload.data);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Navo could not prepare this proposal.");
-    } finally {
-      setRequestState("idle");
-    }
-  };
-
-  const createMission = async () => {
-    if (!proposal) return;
-    setRequestState("creating");
-    setError(null);
-    try {
-      const response = await fetch("/api/agent/commands/create-mission", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ command: proposal.objective, name: proposal.name, status: "ACTIVE" }),
-      });
-      const payload = (await response.json().catch(() => null)) as { missionId?: string; error?: { message?: string } } | null;
-      if (!response.ok || !payload?.missionId) throw new Error(payload?.error?.message ?? "The mission could not be created.");
-      setOpen(false);
-      router.push(`/app/missions/${payload.missionId}`);
-      router.refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The mission could not be created.");
-      setRequestState("idle");
-    }
+    navigate(`/app/missions/new?objective=${encodeURIComponent(trimmed)}`);
   };
 
   const ContextIcon = context.icon;
@@ -221,7 +181,6 @@ export function CommandMenu() {
         className="search-trigger"
         onClick={() => {
           setQuery("");
-          setProposal(null);
           setError(null);
           setOpen(true);
         }}
@@ -251,17 +210,16 @@ export function CommandMenu() {
                 aria-label="Command"
                 onChange={(event) => {
                   setQuery(event.target.value);
-                  setProposal(null);
                   setError(null);
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") void submitCommand();
+                  if (event.key === "Enter") submitCommand();
                   if (event.key === "Escape") setOpen(false);
                 }}
               />
               {query && (
-                <button type="button" className="command-submit" onClick={() => void submitCommand()} aria-label="Preview command" disabled={requestState !== "idle"}>
-                  {requestState === "previewing" ? <Loader2 className="spin" size={15} /> : <ArrowRight size={15} />}
+                <button type="button" className="command-submit" onClick={submitCommand} aria-label="Create mission from command">
+                  <ArrowRight size={15} />
                 </button>
               )}
             </div>
@@ -273,39 +231,7 @@ export function CommandMenu() {
             </div>
 
             <div className="command-results">
-              {proposal ? (
-                <article className="command-result-card">
-                  <header>
-                    <span className="command-result-icon"><Sparkles size={16} /></span>
-                    <span>
-                      <small>Action proposal</small>
-                      <strong>{proposal.name}</strong>
-                    </span>
-                    <span className="badge badge-warning">Review first</span>
-                  </header>
-                  <div className="command-result-body">
-                    <div><span>Objective</span><strong>{proposal.objective}</strong></div>
-                    <div><span>Scope</span><strong>{proposal.targetScope} · {proposal.estimatedAccounts} accounts</strong></div>
-                    <div><span>Plan</span><strong>{proposal.planSteps.join(" · ")}</strong></div>
-                    <div><span>Controls</span><strong>Approval controlled · Test mode · Est. ${proposal.estimatedCost.toFixed(3)}</strong></div>
-                  </div>
-                  <footer>
-                    <button
-                      className="button button-primary"
-                      type="button"
-                      onClick={() => void createMission()}
-                      disabled={requestState !== "idle"}
-                    >
-                      {requestState === "creating" ? <Loader2 className="spin" size={14} /> : <ArrowRight size={14} />}
-                      Create and start mission
-                    </button>
-                    <button className="button button-ghost" type="button" onClick={() => { setProposal(null); setError(null); }} disabled={requestState !== "idle"}>
-                      Edit command
-                    </button>
-                  </footer>
-                </article>
-              ) : (
-                <>
+              <>
                   {(["Ask Navo", "Navigate"] as const).map((group) => {
                     const groupActions = filteredActions.filter((action) => action.group === group);
                     if (!groupActions.length) return null;
@@ -326,17 +252,16 @@ export function CommandMenu() {
                     <div className="command-empty">
                       <Sparkles size={20} />
                       <strong>Preview this request with Navo</strong>
-                      <span>Press Enter to turn it into a structured action proposal.</span>
+                      <span>Press Enter to choose one account and create a reviewable mission.</span>
                     </div>
                   )}
-                </>
-              )}
+              </>
               {error && <div className="agent-control-error" role="alert" style={{ margin: 10 }}><TriangleAlert size={14} />{error}</div>}
             </div>
 
             <footer className="command-footer">
-              <span>↵ Preview</span><span>Esc Close</span><span>G A / G M / G P / G R Navigate</span>
-              <span className="command-safety"><ListChecks size={12} /> Navo will not execute without review</span>
+              <span>↵ Choose account</span><span>Esc Close</span><span>G A / G M / G P / G R Navigate</span>
+              <span className="command-safety"><ListChecks size={12} /> Navo saves DRAFTs only — no send</span>
             </footer>
           </section>
         </div>

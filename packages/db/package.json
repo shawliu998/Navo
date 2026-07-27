@@ -15,6 +15,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@navo/domain": "workspace:*",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.22.0"

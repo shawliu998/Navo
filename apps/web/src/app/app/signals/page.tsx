@@ -13,7 +13,7 @@ export default async function SignalsPage() {
   const inMission = items.filter(({ signal }) => contextByAccount.has(signal.accountId)).length;
 
   return <div className="page page-wide">
-    <PageHeader eyebrow="AGENT DISCOVERY" title="Signals" description="将来源可追溯的业务变化与 Navo 当前 Mission 上下文放在一起，便于判断为何关注以及下一步。"/>
+    <PageHeader eyebrow="AGENT DISCOVERY" title="Signals" description="Review source-backed business changes beside the current Mission context to understand why they matter and what to do next."/>
     <section className="metrics-grid">
       <MetricCard label="Observed signals" value={items.length} helper="Current workspace" icon={<Radar size={14}/>}/>
       <MetricCard label="High confidence" value={highConfidence} helper="Confidence ≥ 80%" icon={<Sparkles size={14}/>}/>
@@ -28,10 +28,10 @@ export default async function SignalsPage() {
         <td><Badge tone={confidence >= 80 ? "success" : confidence >= 60 ? "warning" : "danger"}>{confidence}%</Badge></td>
         <td><StatusBadge status={signal.status}/></td>
         <td>{context ? <Link href={`/app/missions/${context.missionId}`}><strong style={{display: "block", fontSize: 12}}>{context.missionName}</strong><small className="muted" style={{display: "block", marginTop: 3}}>{context.currentStep ?? context.suggestedAction ?? "Target selected"} · {context.priority.toLowerCase()} priority</small></Link> : <span><strong style={{display: "block", fontSize: 12}}>Not in an active context</strong><small className="muted">Available for future mission planning</small></span>}</td>
-        <td>{signal.detectedAt.toLocaleDateString("zh-CN")}</td>
+        <td>{signal.detectedAt.toLocaleDateString("en-US")}</td>
         <td><Link className="icon-button" href={`/app/accounts/${signal.accountId}`} aria-label={`Open ${accountName}`}><ArrowRight size={14}/></Link></td>
       </tr>;
     })}</tbody></table></div>
-    <div className="alert alert-info" style={{marginTop: 14}}><Radar size={16}/><span>当一个 Account 属于多个 Mission 时，这里展示最近更新的 Mission 上下文；原始 Signal 不会因此被改写。</span></div>
+    <div className="alert alert-info" style={{marginTop: 14}}><Radar size={16}/><span>When an Account belongs to multiple Missions, this view shows the most recently updated context without rewriting the original Signal.</span></div>
   </div>;
 }

@@ -11,12 +11,15 @@
     "@navo/workflows": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
     "@xyflow/react": "^12.11.2",
+    "bullmq": "^5.80.5",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.24.0",
+    "ioredis": "^5.11.1",
     "next": "^16.2.10",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "recharts": "^3.9.2",
+    "svix": "^1.98.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

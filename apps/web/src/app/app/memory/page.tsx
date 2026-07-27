@@ -13,7 +13,7 @@ export default async function MemoryPage() {
   const highConfidence = data.facts.filter(({ memory }) => Number(memory.confidence) >= .8).length;
 
   return <div className="page">
-    <PageHeader eyebrow="PERSISTENT CONTEXT" title="Memory" description="从已处理对话中提取的活跃 Account Facts，与 Navo 规划 Mission 时加载的工作区 Knowledge 分开展示。"/>
+    <PageHeader eyebrow="PERSISTENT CONTEXT" title="Memory" description="Source-backed Account Facts from Missions and conversations, kept separate from execution-control state."/>
     <section className="metrics-grid">
       <MetricCard label="Active facts" value={data.facts.length} helper={`Across ${accountCount} accounts`} icon={<BrainCircuit size={14}/>}/>
       <MetricCard label="High confidence" value={highConfidence} helper="Confidence ≥ 80%" icon={<CheckCircle2 size={14}/>}/>
@@ -25,11 +25,11 @@ export default async function MemoryPage() {
         {[...categories.entries()].map(([category, facts]) => <article className="card" key={category}>
           <div className="card-header"><div><h2>{category.replaceAll("_", " ")}</h2><span className="card-subtitle">{facts.length} active facts</span></div><Badge tone="accent">Memory</Badge></div>
           {facts.map(({memory, accountName}) => <div className="list-row" key={memory.id}>
-            <span><Link href={`/app/accounts/${memory.accountId}`}><strong>{accountName}</strong></Link><span style={{display: "block", fontSize: 12, marginTop: 4}}>{memory.fact}</span><small className="muted" style={{display: "flex", alignItems: "center", gap: 4, marginTop: 5}}><Clock3 size={11}/>{memory.validFrom.toLocaleDateString("zh-CN")} · source message recorded</small></span>
+            <span><Link href={`/app/accounts/${memory.accountId}`}><strong>{accountName}</strong></Link><span style={{display: "block", fontSize: 12, marginTop: 4}}>{memory.fact}</span><small className="muted" style={{display: "flex", alignItems: "center", gap: 4, marginTop: 5}}><Clock3 size={11}/>{memory.validFrom.toLocaleDateString("en-US")} · source {memory.sourceType.toLowerCase()} · {(memory.evidenceIds as string[]).length} evidence link(s)</small></span>
             <Badge tone={Number(memory.confidence) >= .8 ? "success" : "warning"}>{Math.round(Number(memory.confidence) * 100)}%</Badge>
           </div>)}
         </article>)}
-        {data.facts.length === 0 && <div className="empty-state"><BrainCircuit/><strong>尚无活跃记忆</strong><p>当 Reply Intelligence 验证一个事实后，它会出现在这里。</p></div>}
+        {data.facts.length === 0 && <div className="empty-state"><BrainCircuit/><strong>No active memory yet</strong><p>Verified facts from Reply Intelligence will appear here.</p></div>}
       </div>
       <aside className="stack">
         <section className="card"><div className="card-header"><div><h2>Loaded knowledge</h2><span className="card-subtitle">Workspace context available to the agent</span></div><Database size={16}/></div>
@@ -37,7 +37,7 @@ export default async function MemoryPage() {
           <div className="guardrail-item"><small>ICP profiles</small><strong>{data.knowledge.icpProfiles.length}</strong><div className="toolbar-group" style={{marginTop: 7, flexWrap: "wrap"}}>{data.knowledge.icpProfiles.map((profile) => <Badge tone="neutral" key={profile.id}><Target size={11}/>{profile.name}</Badge>)}</div></div>
           <div className="guardrail-item"><small>Approved claims</small><strong>{data.knowledge.approvedClaims.length}</strong><p className="muted">Only approved claims are loaded for controlled generation.</p></div>
         </section>
-        <div className="alert alert-info"><ShieldCheck size={16}/><span>Memory Fact 必须保留来源 Message 和 Confidence。新事实可以 supersede 旧事实，但不会删除原始审计记录。</span></div>
+        <div className="alert alert-info"><ShieldCheck size={16}/><span>Memory Facts retain sourceType, sourceId, evidenceIds, and confidence. Mission facts are never presented as message evidence.</span></div>
       </aside>
     </section>
   </div>;

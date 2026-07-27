@@ -1,12 +1,13 @@
 import { AlertTriangle, CheckCircle2, Database, Package, ShieldCheck, Target, UserRound } from "lucide-react";
-import { DEMO_WORKSPACE_ID, getAgentMemory, getKnowledge } from "@navo/db/queries";
+import { DEMO_WORKSPACE_ID, getAgentMemory, getKnowledge, getKnowledgeBase } from "@navo/db/queries";
 import { Badge, MetricCard, PageHeader, StatusBadge } from "@navo/ui";
+import { KnowledgeEditor } from "@/components/knowledge-editor";
 
 export const metadata = { title: "Knowledge" };
 const renderedAt = Date.now();
 
 export default async function KnowledgePage() {
-  const [data, memoryContext] = await Promise.all([getKnowledge(DEMO_WORKSPACE_ID), getAgentMemory(DEMO_WORKSPACE_ID)]);
+  const [data, memoryContext, knowledgeBase] = await Promise.all([getKnowledge(DEMO_WORKSPACE_ID), getAgentMemory(DEMO_WORKSPACE_ID), getKnowledgeBase(DEMO_WORKSPACE_ID)]);
   const activeProducts = data.products.filter((product) => product.status === "ACTIVE");
   const approvedClaims = data.claims.filter((claim) => claim.status === "APPROVED");
   const expiredClaims = approvedClaims.filter((claim) => claim.expiresAt && claim.expiresAt.getTime() < renderedAt);
@@ -23,7 +24,7 @@ export default async function KnowledgePage() {
   const health = Math.round(checks.filter((check) => check.healthy).length / checks.length * 100);
 
   return <div className="page">
-    <PageHeader eyebrow="AGENT CONTEXT" title="Knowledge Health" description="检查 Navo 在规划和执行 Mission 前可用的产品、ICP、Persona 和受批准表述。"/>
+    <PageHeader eyebrow="AGENT CONTEXT" title="Knowledge Health" description="Review the product, ICP, personas, and approved claims available before Navo plans or runs a Mission."/>
     <section className="metrics-grid">
       <MetricCard label="Context health" value={`${health}%`} helper={`${checks.filter((check) => check.healthy).length}/${checks.length} checks healthy`} icon={<Database size={14}/>}/>
       <MetricCard label="Active products" value={activeProducts.length} helper={`${completeProducts.length} complete`} icon={<Package size={14}/>}/>
@@ -43,9 +44,10 @@ export default async function KnowledgePage() {
         </article>)}
       </div>
       <aside className="stack">
-        <section className="card"><div className="card-header"><h2>Approved Claims</h2><Badge tone="success"><ShieldCheck size={12}/>外发可用</Badge></div>{approvedClaims.map((claim) => <div className="guardrail-item" key={claim.id}><strong>{claim.claim}</strong><small>{claim.evidence ?? "Missing supporting evidence"}</small><div className="toolbar-group" style={{marginTop: 7}}><StatusBadge status={claim.status}/>{claim.expiresAt && <Badge tone={claim.expiresAt.getTime() < renderedAt ? "danger" : "neutral"}>Expires {claim.expiresAt.toLocaleDateString("zh-CN")}</Badge>}</div></div>)}</section>
+        <section className="card"><div className="card-header"><h2>Approved Claims</h2><Badge tone="success"><ShieldCheck size={12}/>Ready for outreach</Badge></div>{approvedClaims.map((claim) => <div className="guardrail-item" key={claim.id}><strong>{claim.claim}</strong><small>{claim.evidence ?? "Missing supporting evidence"}</small><div className="toolbar-group" style={{marginTop: 7}}><StatusBadge status={claim.status}/>{claim.expiresAt && <Badge tone={claim.expiresAt.getTime() < renderedAt ? "danger" : "neutral"}>Expires {claim.expiresAt.toLocaleDateString("en-US")}</Badge>}</div></div>)}</section>
         <section className="card"><div className="card-header"><h2>Personas</h2><UserRound size={16} className="muted"/></div>{data.personas.map((persona) => <div className="guardrail-item" key={persona.id}><strong>{persona.name}</strong><small>{persona.department} · {persona.decisionRole}</small><p className="muted">CTA: {persona.recommendedCta ?? "Not defined"}</p></div>)}</section>
       </aside>
     </section>
+    <KnowledgeEditor initial={knowledgeBase}/>
   </div>;
 }

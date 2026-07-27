@@ -1,0 +1,2 @@
+DROP INDEX "agent_missions_active_retry_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "agent_missions_active_retry_unique" ON "agent_missions" USING btree ("workspace_id","retry_of_mission_id") WHERE "retry_of_mission_id" IS NOT NULL AND "status" NOT IN ('COMPLETED', 'FAILED', 'CANCELLED');

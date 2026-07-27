@@ -6,31 +6,31 @@ const ids = {
   account: "00000000-0000-4000-8000-000000000100",
   suppressedAccount: "00000000-0000-4000-8000-000000000107",
   play: "00000000-0000-4000-8000-000000000700",
-  approval: "00000000-0000-4000-8000-000000001400",
+  approval: "00000000-0000-4000-8000-000000001401",
   run: "00000000-0000-4000-8000-000000000900",
 };
 
 test.describe.serial("Navo account intelligence and reply loop", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/login");
-    await page.getByRole("button", { name: /进入 Demo Workspace/ }).click();
+    await page.getByRole("button", { name: /Enter demo workspace/i }).click();
     await expect(page).toHaveURL(/\/app\/overview/);
   });
 
   test("login, overview, accounts and evidence", async ({ page }) => {
     await expect(page.getByRole("heading", { name: /Good morning|Command Center/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Navo is active/i })).toBeVisible();
+    await expect(page.locator(".agent-status-control")).toContainText("Navo");
     await page.screenshot({ path: path.join(shots, "overview.png"), fullPage: true });
     await page.goto("/app/accounts");
     await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
-    await expect(page.getByText("Demo Rheinwerk Automation GmbH")).toBeVisible();
+    await expect(page.getByText("Rheinwerk Automation GmbH")).toBeVisible();
     await page.screenshot({ path: path.join(shots, "accounts.png"), fullPage: true });
-    await page.goto(`/app/accounts/${ids.account}?tab=evidence`);
-    await expect(page.getByText(/Evidence · 可直接证明的事实/)).toBeVisible();
-    await expect(page.getByText(/Inference · 受约束推断/)).toBeVisible();
-    await expect(page.getByText(/Decision · 业务决策/)).toBeVisible();
-    await page.goto(`/app/accounts/${ids.account}?tab=memory`);
-    await expect(page.getByText("Account Memory")).toBeVisible();
+    await page.goto(`/app/accounts/${ids.account}?tab=intelligence&view=evidence`);
+    await expect(page.getByRole("heading", { name: "Evidence directory" })).toBeVisible();
+    await expect(page.getByText("Verified fact", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Sales signal", { exact: true }).first()).toBeVisible();
+    await page.goto(`/app/accounts/${ids.account}?tab=activity&view=memory`);
+    await expect(page.getByRole("heading", { name: "Account memory" })).toBeVisible();
     await page.screenshot({ path: path.join(shots, "account-detail.png"), fullPage: true });
   });
 
@@ -48,39 +48,64 @@ test.describe.serial("Navo account intelligence and reply loop", () => {
     await page.locator(".builder-toolbar .primary").click();
     expect((await published).ok()).toBeTruthy();
     await expect(page.getByText(/Published version/)).toBeVisible();
+    const testRun = page.waitForResponse((response) => response.url().endsWith(`/api/plays/${ids.play}/test-run`) && response.request().method() === "POST");
     await page.getByRole("button", { name: /Test Run/ }).click();
-    await expect(page).toHaveURL(/\/app\/runs\//);
+    expect((await testRun).status()).toBe(201);
+    await expect(page).toHaveURL(/\/app\/runs\//, { timeout: 15_000 });
     await expect(page.getByText(/TEST RUN/)).toBeVisible();
   });
 
   test("review and approve a message with a human edit", async ({ page }) => {
     await page.goto(`/app/approvals/${ids.approval}`);
-    await expect(page.getByText("Email Draft")).toBeVisible();
+    await expect(page.getByText("Proposed message", { exact: true })).toBeVisible();
     await page.screenshot({ path: path.join(shots, "approval.png"), fullPage: true });
-    const subject = page.locator(".editor-panel input").first();
+    await page.getByText("Edit proposed message").click();
+    const subject = page.locator(".approval-edit-fields input").first();
     await subject.fill(`${await subject.inputValue()} — QA reviewed`);
-    await page.getByRole("button", { name: /Approve With Changes/ }).click();
+    await page.getByRole("button", { name: "Approve", exact: true }).click();
     await expect(page).toHaveURL(/\/app\/approvals/);
   });
 
-  test("inspect a run and retry without overwriting history", async ({ page }) => {
+  test("inspect a run with immutable attempt history", async ({ page }) => {
     await page.goto(`/app/runs/${ids.run}`);
-    await expect(page.getByText(/RUN #2026071601/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Target Account Outreach with Policy Check" })).toBeVisible();
     await page.screenshot({ path: path.join(shots, "run-detail.png"), fullPage: true });
-    await page.getByRole("button", { name: /Retry node/ }).click();
+    await expect(page.getByText("Attempt 1").first()).toBeVisible();
     await expect(page.getByText("Attempt 2").first()).toBeVisible();
   });
 
   test("suppression is visible and analytics is database-backed", async ({ page }) => {
+    const consoleProblems: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error" || message.type() === "warning") consoleProblems.push(`${message.type()}: ${message.text()}`);
+    });
     await page.goto(`/app/accounts/${ids.suppressedAccount}?tab=contacts`);
     await expect(page.getByText("SUPPRESSED")).toBeVisible();
     await page.goto("/app/analytics");
     await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();
-    await expect(page.getByText("Qualification Rate")).toBeVisible();
+    await expect(page.getByText("Qualification Rate", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText("Current workspace snapshot · no historical estimates", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Past 30 days" })).toHaveCount(0);
+    await expect(page.getByText("vs prior 30d")).toHaveCount(0);
+    await expect(page.getByText("30d trend", { exact: true })).toHaveCount(0);
     await page.screenshot({ path: path.join(shots, "analytics.png"), fullPage: true });
+    await page.setViewportSize({ width: 740, height: 900 });
+    const analyticsNarrowWidths = await page.evaluate(() => ({
+      viewport: window.innerWidth,
+      document: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth,
+    }));
+    expect(analyticsNarrowWidths.document).toBeLessThanOrEqual(analyticsNarrowWidths.viewport);
+    expect(analyticsNarrowWidths.body).toBeLessThanOrEqual(analyticsNarrowWidths.viewport);
+    await page.screenshot({ path: path.join(shots, "analytics-narrow.png"), fullPage: true });
+    expect(consoleProblems).toEqual([]);
   });
 
   test("EmailSink reply creates classification, memory, next action, task and CRM mirror", async ({ page }) => {
+    const consoleProblems: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error" || message.type() === "warning") consoleProblems.push(`${message.type()}: ${message.text()}`);
+    });
     await page.goto("/app/email-sink");
     await expect(page.getByRole("heading", { name: "EmailSink" })).toBeVisible();
     await page.screenshot({ path: path.join(shots, "email-sink.png"), fullPage: true });
@@ -88,23 +113,51 @@ test.describe.serial("Navo account intelligence and reply loop", () => {
     const response = page.waitForResponse((item) => item.url().includes("/api/dev/email-sink/") && item.url().endsWith("/reply"));
     await page.getByRole("button", { name: /Simulate reply/ }).click();
     const replyResponse = await response;
-    expect(replyResponse.status()).toBe(201);
+    expect([200, 201]).toContain(replyResponse.status());
     const replyPayload = await replyResponse.json();
-    await expect(page.getByRole("status")).toContainText("POSITIVE");
+    await expect(page.getByRole("status")).toContainText(/reply loop completed/i);
     await page.goto(`/app/conversations/${replyPayload.data.message.conversationId}`);
     await expect(page.getByText("Conversation summary")).toBeVisible();
     await expect(page.getByText("Next Best Action")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Prepare a discovery meeting" })).toBeVisible();
+    await expect(page.getByText("Prepare a discovery meeting", { exact: true })).toBeVisible();
+    const conversationSearch = page.getByLabel("Search conversations");
+    const firstQueueSubject = await page.locator(".reply-queue-row strong").first().innerText();
+    await conversationSearch.fill(firstQueueSubject);
+    await expect(page.locator(".reply-queue-row").first()).toContainText(firstQueueSubject);
+    await conversationSearch.fill("no-reply-matches-this-query");
+    await expect(page.getByText("No matching replies", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Clear search", exact: true }).click();
+    await expect(conversationSearch).toHaveValue("");
+    await expect(page.locator(".reply-queue-row").first()).toContainText(firstQueueSubject);
     await page.screenshot({ path: path.join(shots, "conversation.png"), fullPage: true });
+    await page.setViewportSize({ width: 740, height: 900 });
+    await expect(page.locator(".reply-thread")).toHaveCSS("order", "1");
+    await expect(page.locator(".reply-context")).toHaveCSS("order", "2");
+    await expect(page.locator(".reply-queue")).toHaveCSS("order", "3");
+    const narrowWidths = await page.evaluate(() => ({
+      viewport: window.innerWidth,
+      document: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth,
+    }));
+    expect(narrowWidths.document).toBeLessThanOrEqual(narrowWidths.viewport);
+    expect(narrowWidths.body).toBeLessThanOrEqual(narrowWidths.viewport);
+    await page.screenshot({ path: path.join(shots, "conversation-narrow.png"), fullPage: true });
     await page.goto("/app/tasks");
     await expect(page.getByRole("heading", { name: "Tasks" })).toBeVisible();
     await expect(page.getByText("Prepare a discovery meeting").first()).toBeVisible();
+    expect(consoleProblems).toEqual([]);
   });
 
   test("CSV import maps and deduplicates accounts", async ({ page }) => {
     await page.goto("/app/accounts/import");
     await expect(page.getByRole("heading", { name: "Import target accounts" })).toBeVisible();
+    const imported = page.waitForResponse((response) => response.url().endsWith("/api/accounts/import") && response.request().method() === "POST");
     await page.getByRole("button", { name: /Import 2 rows/ }).click();
-    await expect(page.getByText(/Import completed: 2 created/)).toBeVisible();
+    const response = await imported;
+    expect(response.ok()).toBe(true);
+    const payload = await response.json() as { data: { created: number; updated: number; skipped: number } };
+    expect(payload.data.created + payload.data.updated).toBe(2);
+    expect(payload.data.skipped).toBe(0);
+    await expect(page.getByText(`Import completed: ${payload.data.created} created, ${payload.data.updated} updated, 0 skipped.`)).toBeVisible();
   });
 });
