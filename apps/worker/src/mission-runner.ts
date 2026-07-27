@@ -141,12 +141,12 @@ function contactScore(contact: Pick<ContactRow, "title" | "persona" | "confidenc
 }
 
 async function defaultWebsiteResearch(input: WebsiteResearchInput): Promise<WebsiteResearchOutput> {
-  if (isLocalDemoWebsite(input.websiteUrl)) return { ok: true, data: await loadLocalWebsiteResearchFixture(input.accountId, input.websiteUrl) };
+  if (isLocalDemoWebsite(input.websiteUrl)) return { ok: true, data: await loadLocalWebsiteResearchFixture(input.accountId, input.websiteUrl, new Date(), { accountName: input.accountName }) };
   return fetchWebsiteResearch(input);
 }
 
 async function mockWebsiteResearch(input: WebsiteResearchInput): Promise<WebsiteResearchOutput> {
-  return { ok: true, data: await loadLocalWebsiteResearchFixture(input.accountId, input.websiteUrl, new Date(), { allowAnyBase: true }) };
+  return { ok: true, data: await loadLocalWebsiteResearchFixture(input.accountId, input.websiteUrl, new Date(), { allowAnyBase: true, accountName: input.accountName }) };
 }
 
 function isHardExcluded(account: AccountRow, exclusions: string[]) {
@@ -478,7 +478,7 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
         fetched.push({ accountId, pageCount: artifact.website.pages.length });
         continue;
       }
-      const website = await withLocalRetry("WEBSITE_FETCH", () => runtime.fetchResearch({ accountId, websiteUrl: artifact.account.website! }));
+      const website = await withLocalRetry("WEBSITE_FETCH", () => runtime.fetchResearch({ accountId, accountName: artifact.account.name, websiteUrl: artifact.account.website! }));
       if (!website.ok) { failures.push({ accountId, error: `${website.error.code}: ${website.error.message}` }); continue; }
       artifact.website = website.data;
       runtime.result.websiteByAccount[accountId] = website.data;
@@ -646,7 +646,7 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
 
     if (!artifact.contacts.length) {
       const focusedResearch = artifact.account.website
-        ? await runtime.fetchResearch({ accountId: artifact.account.id, websiteUrl: artifact.account.website, focus: "CONTACTS" })
+        ? await runtime.fetchResearch({ accountId: artifact.account.id, accountName: artifact.account.name, websiteUrl: artifact.account.website, focus: "CONTACTS" })
         : null;
       const contactWebsite = focusedResearch?.ok ? focusedResearch.data : artifact.website;
       const discoveryInput = {
@@ -827,12 +827,36 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
     }
     const best = runtime.memory.bestAccountId ? runtime.artifacts.get(runtime.memory.bestAccountId) : undefined;
     const rankingReason = runtime.result.ranking?.rankedAccounts.find((item) => item.accountId === runtime.memory.bestAccountId)?.reason ?? null;
-    const generated = await withLocalRetry("MISSION_SUMMARY", () => runtime.ai.generateStructured({ operation: "mission-summary", systemInstruction: buildOperationInstruction("mission-summary", "Summarize persisted artifacts only. State clearly that outreach remains DRAFT."), input: { outcome: runtime.result.outcome ?? (best ? "OPPORTUNITY_FOUND" : "NO_SUITABLE_MATCH"), decisionSummary: runtime.result.decisionSummary ?? runtime.memory.notes.at(-1), accountsInvestigated: runtime.memory.researchedAccountIds.length, bestAccountId: runtime.memory.bestAccountId, bestContactId: runtime.memory.bestContactId, bestContact: best?.bestContact ? { name: best.bestContact.name, title: best.bestContact.title } : null, bestAccountReason: rankingReason, keySignals: best?.signals.map((signal) => signal.summary) ?? [], qualificationSummary: best?.qualification ? `${best.qualification.status} at ${best.qualification.score}/100` : "No qualification", outreachDraftId: runtime.result.messageId ?? null, taskIds: runtime.result.taskIds, memoryFactIds: runtime.result.memoryFactIds, plannerMode: runtime.mission.plannerMode, fallbackReason: runtime.mission.plannerFallbackReason }, outputSchema: missionResultSchema, promptVersion: "mission-summary-v3", temperature: 0.1, maxTokens: 1_000 }));
-    Object.assign(runtime.result, generated.data);
+    const outcome = runtime.result.outcome ?? (best ? "OPPORTUNITY_FOUND" : "NO_SUITABLE_MATCH");
+    const accountsInvestigated = runtime.memory.researchedAccountIds.length;
+    const keySignals = best?.signals.map((signal) => signal.summary) ?? [];
+    const qualificationSummary = best?.qualification ? `${best.qualification.status} at ${best.qualification.score}/100` : "No qualification";
+    const generated = await withLocalRetry("MISSION_SUMMARY", () => runtime.ai.generateStructured({ operation: "mission-summary", systemInstruction: buildOperationInstruction("mission-summary", "Summarize persisted artifacts only. Use the exact selectedAccount name and ID when supplied; never introduce another company. State clearly that outreach remains DRAFT."), input: { outcome, decisionSummary: runtime.result.decisionSummary ?? runtime.memory.notes.at(-1), accountsInvestigated, selectedAccount: best ? { id: best.account.id, name: best.account.name } : null, bestAccountId: runtime.memory.bestAccountId, bestContactId: runtime.memory.bestContactId, bestContact: best?.bestContact ? { name: best.bestContact.name, title: best.bestContact.title } : null, bestAccountReason: rankingReason, keySignals, qualificationSummary, outreachDraftId: runtime.result.messageId ?? null, taskIds: runtime.result.taskIds, memoryFactIds: runtime.result.memoryFactIds, plannerMode: runtime.mission.plannerMode, fallbackReason: runtime.mission.plannerFallbackReason }, outputSchema: missionResultSchema, promptVersion: "mission-summary-v4", temperature: 0.1, maxTokens: 1_000 }));
+    const groundedSummary = best
+      ? `Navo investigated ${accountsInvestigated} account${accountsInvestigated === 1 ? "" : "s"} and selected ${best.account.name} from persisted ranking and qualification evidence.${keySignals.length ? ` Key signals: ${keySignals.slice(0, 3).join("; ")}.` : ""} Outreach remains DRAFT; no email was sent.`
+      : `Navo investigated ${accountsInvestigated} account${accountsInvestigated === 1 ? "" : "s"} and found no suitable match within the bounded evidence set. No outreach was sent.`;
+    const groundedResult = missionResultSchema.parse({
+      ...generated.data,
+      outcome,
+      decisionSummary: best ? `${best.account.name} was selected from persisted evidence and bounded checkpoint decisions.` : "No account met the bounded qualification and evidence requirements.",
+      summary: groundedSummary,
+      accountsInvestigated,
+      bestAccountId: runtime.memory.bestAccountId,
+      bestContactId: runtime.memory.bestContactId,
+      bestAccountReason: rankingReason ?? generated.data.bestAccountReason,
+      keySignals,
+      qualificationSummary,
+      outreachDraftId: runtime.result.messageId ?? null,
+      taskIds: runtime.result.taskIds,
+      memoryFactIds: runtime.result.memoryFactIds,
+      plannerMode: runtime.mission.plannerMode,
+      fallbackReason: runtime.mission.plannerFallbackReason,
+    });
+    Object.assign(runtime.result, groundedResult);
     runtime.result.research = best?.research;
     runtime.result.qualification = best?.qualification;
-    runtime.memory.lastObservation = generated.data.summary;
-    return generated.data;
+    runtime.memory.lastObservation = groundedResult.summary;
+    return groundedResult;
   });
 
   return registry.assertComplete();

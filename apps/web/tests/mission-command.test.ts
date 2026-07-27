@@ -29,7 +29,7 @@ describe("mission preview contract", () => {
     };
     const parsed = mockMissionPreviewSchema.parse({ plan, provider: "mock-ai", model: "deterministic-v1" });
     expect(parsed.plan).toEqual(plan);
-    expect(mockMissionPreviewSchema.safeParse({ ...parsed, provider: "deepseek", model: "deepseek-chat" }).success).toBe(true);
+    expect(mockMissionPreviewSchema.safeParse({ ...parsed, provider: "deepseek", model: "deepseek-v4-flash" }).success).toBe(true);
     expect(mockMissionPreviewSchema.safeParse({ ...parsed, provider: "" }).success).toBe(false);
   });
 });

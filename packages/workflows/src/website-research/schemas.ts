@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const websiteResearchInputSchema = z.object({
   accountId: z.string().trim().min(1).max(200),
+  accountName: z.string().trim().min(1).max(500).optional(),
   websiteUrl: z.string().trim().min(1).max(2_048),
   focus: z.enum(["COMPANY", "CONTACTS"]).default("COMPANY"),
 }).strict();

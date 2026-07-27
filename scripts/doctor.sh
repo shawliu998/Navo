@@ -39,7 +39,7 @@ check_database() {
   pnpm --filter @navo/db exec node - <<'NODE'
 const { Pool } = require("pg");
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || "postgresql://navo:navo@localhost:54322/navo",
+  connectionString: process.env.DATABASE_URL || "postgresql://navo:navo@localhost:55432/navo",
   connectionTimeoutMillis: 3000,
 });
 (async () => {

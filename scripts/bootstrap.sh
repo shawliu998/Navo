@@ -36,7 +36,7 @@ pnpm db:migrate
 database_workspace_count() {
   pnpm --filter @navo/db exec node - <<'NODE'
 const { Pool } = require("pg");
-const pool = new Pool({ connectionString: process.env.DATABASE_URL || "postgresql://navo:navo@localhost:54322/navo" });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL || "postgresql://navo:navo@localhost:55432/navo" });
 (async () => {
   const result = await pool.query("select count(*)::int as count from workspaces");
   console.log(result.rows[0].count);

@@ -9,7 +9,7 @@ config({ path: resolve(process.cwd(), "../../.env.local"), quiet: true });
 
 const key = process.env.DEEPSEEK_API_KEY;
 if (!key) throw new Error("DEEPSEEK_API_KEY is required for the live smoke test.");
-const model = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
+const model = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
 const runChain = process.env.DEEPSEEK_SMOKE_CHAIN === "1";
 const ai = new DeepSeekAIProvider(key, { baseUrl: process.env.DEEPSEEK_BASE_URL, model });
 const userId = "00000000-0000-4000-8000-000000000002";

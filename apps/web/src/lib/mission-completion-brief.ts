@@ -1,8 +1,10 @@
 type PersistedMissionResult = {
   research?: { summary?: unknown; manufacturingSignals?: unknown };
+  replyDraft?: unknown;
 };
 
 type BriefInput = {
+  missionType?: string;
   status: string;
   error: string | null;
   result: unknown;
@@ -14,6 +16,7 @@ type BriefInput = {
 };
 
 export type CompletionBrief = {
+  mode: "research" | "reply";
   state: "completed" | "failed" | "pending" | "empty";
   conclusion: string;
   qualified: boolean | null;
@@ -33,15 +36,27 @@ const strings = (value: unknown) => Array.isArray(value) ? value.filter((item): 
 /** Derives a concise operator brief solely from persisted Mission outputs. */
 export function deriveCompletionBrief(input: BriefInput): CompletionBrief {
   const accountId = input.account?.id ?? null;
+  const result = input.result && typeof input.result === "object" ? input.result as PersistedMissionResult : {};
+  const mode = input.missionType === "REPLY_FOLLOW_UP" || result.replyDraft ? "reply" : "research";
   if (input.status === "FAILED") return {
-    state: "failed", conclusion: "Mission stopped before a complete brief could be delivered.", qualified: null, qualificationStatus: null, score: null,
+    mode, state: "failed", conclusion: "Mission stopped before a complete brief could be delivered.", qualified: null, qualificationStatus: null, score: null,
     findings: [], evidenceCount: input.evidence.length, sourceUrls: [], risks: input.error ? [input.error] : [], recommendedNextStep: "Retry as a new mission after reviewing the failure.", draftSubject: null, accountId,
   };
   if (input.status !== "COMPLETED") return {
-    state: "pending", conclusion: "Navo will publish a completion brief after persisted research and qualification are available.", qualified: null, qualificationStatus: null, score: null,
+    mode, state: "pending", conclusion: mode === "reply" ? "Navo will publish the reply DRAFT and internal follow-up when processing finishes." : "Navo will publish a completion brief after persisted research and qualification are available.", qualified: null, qualificationStatus: null, score: null,
     findings: [], evidenceCount: input.evidence.length, sourceUrls: [], risks: [], recommendedNextStep: "Wait for the mission to finish; no external action is taken.", draftSubject: null, accountId,
   };
-  const result = input.result && typeof input.result === "object" ? input.result as PersistedMissionResult : {};
+  if (mode === "reply") {
+    if (!input.message) return {
+      mode, state: "empty", conclusion: "This reply mission completed without a persisted DRAFT to review.", qualified: null, qualificationStatus: null, score: null,
+      findings: [], evidenceCount: 0, sourceUrls: [], risks: [], recommendedNextStep: "Review the mission results and retry reply processing if needed.", draftSubject: null, accountId,
+    };
+    return {
+      mode, state: "completed", conclusion: "Inbound reply processed; a review-only DRAFT and internal follow-up artifacts were saved.", qualified: null, qualificationStatus: null, score: null,
+      findings: [], evidenceCount: 0, sourceUrls: [], risks: [], recommendedNextStep: "Review or edit the reply DRAFT, then complete the linked internal task.",
+      draftSubject: input.message.status === "DRAFT" ? input.message.subject : null, accountId,
+    };
+  }
   const qualification = input.qualification;
   const qualified = qualification ? ["STRONG_FIT", "POTENTIAL_FIT"].includes(qualification.status) : null;
   const findings = [
@@ -51,10 +66,11 @@ export function deriveCompletionBrief(input: BriefInput): CompletionBrief {
   ].slice(0, 3);
   const sourceUrls = [...new Set(input.evidence.map((item) => item.sourceUrl).filter((url): url is string => Boolean(url)))].slice(0, 3);
   if (!qualification && !findings.length && !input.message) return {
-    state: "empty", conclusion: "This completed mission has no persisted qualification, findings, or draft to summarize.", qualified: null, qualificationStatus: null, score: null,
+    mode, state: "empty", conclusion: "This completed mission has no persisted qualification, findings, or draft to summarize.", qualified: null, qualificationStatus: null, score: null,
     findings: [], evidenceCount: input.evidence.length, sourceUrls, risks: [], recommendedNextStep: "Research again with a verified website.", draftSubject: null, accountId,
   };
   return {
+    mode,
     state: "completed",
     conclusion: qualified === true ? `${input.account?.name ?? "The account"} is qualified for a safe follow-up.` : qualification?.status === "REVIEW" ? `${input.account?.name ?? "The account"} needs review before outreach.` : qualified === false ? `${input.account?.name ?? "The account"} is not currently qualified for outreach.` : "Research was saved; qualification is unavailable.",
     qualified,

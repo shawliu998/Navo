@@ -14,7 +14,7 @@ export type ReplyFollowUpDependencies = {
 const fallbackUserId = "00000000-0000-4000-8000-000000000002";
 
 function executionProvider() {
-  if (process.env.AI_PROVIDER === "deepseek") return { provider: "deepseek", model: process.env.DEEPSEEK_MODEL ?? "deepseek-chat" };
+  if (process.env.AI_PROVIDER === "deepseek") return { provider: "deepseek", model: process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash" };
   return { provider: "mock-ai", model: "deterministic-v1" };
 }
 
