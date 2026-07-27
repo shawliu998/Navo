@@ -1,13 +1,12 @@
 <h1 align="center">Navo</h1>
 
 <p align="center">
-  <strong>Turn account evidence into agent-driven missions, verified decisions, and owned next actions.</strong>
+  <strong>Turn account evidence into verified decisions and owned next actions.</strong>
 </p>
 
 <p align="center">
-  Navo is an operator-first agent-native workspace for industrial B2B teams. Missions combine
-  account intelligence, research execution, human approval, and next-best actions into a
-  continuous operating loop.
+  An account-intelligence and outbound-orchestration workspace for industrial B2B teams,
+  built around durable Missions rather than chat sessions.
 </p>
 
 <p align="center">
@@ -28,13 +27,9 @@
 
 ---
 
-## What is this, really?
+## What Navo does
 
-Navo is an operator-first agent-native account-intelligence and outbound-orchestration workspace
-for industrial B2B teams. Its execution primitive is the Mission: a durable work object with a
-goal, plan, execution state, evidence, decisions, and outcomes.
-
-It starts with a target account, gathers source-backed evidence, separates facts from inference,
+Navo starts with a target account, gathers source-backed evidence, separates facts from inference,
 qualifies the opportunity, prepares a message for human review, and turns the reply into an owned
 next action. The interface is built around that operating loop—not around a chatbot.
 
@@ -43,14 +38,15 @@ Accounts → Signals / Evidence → Research → Qualification → Contacts
 → Mission / Play → Message / Sequence → Replies → Next Best Action
 ```
 
-### The Navo Agent Loop
+### How a Mission runs
 
 ```text
 Observe → Plan → Execute → Verify → Decide → Learn → Continue
 ```
 
-Navo agents do not replace operators. They execute bounded Missions, preserve evidence, and
-surface the next action that moves an account forward.
+A Mission carries its goal, plan, execution state, evidence, decisions, and outcomes. Navo
+executes bounded work, preserves evidence, and surfaces the next action that moves an account
+forward. Operators keep control of every external action.
 
 In practice, Navo feels like a compact sales operations workspace. Underneath, it is a bounded
 execution system: model output is structured, evidence is traceable, workflow state is durable,
@@ -201,4 +197,4 @@ artifacts       Recruiter-facing screenshots and packaged portfolio
 - Not a claim that every visible capability is production-ready.
 
 What it is: a concrete study in turning uncertain model output into observable, bounded, and
-testable business behavior through a Mission-centered Agent Loop.
+testable business behavior through a Mission-centered operating loop.
