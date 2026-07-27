@@ -11,9 +11,29 @@ to the BullMQ worker. The worker consumes queue jobs containing IDs only (`works
 Deterministic direct execution is retained for integration tests; this is a test seam, not a
 production-readiness claim.
 
+## Mission-centered Agent architecture
+
+The core execution unit in Navo is the Mission. A Mission contains intent, planning state,
+execution history, evidence, decisions and outcomes. Agent behavior is implemented through
+controlled planning, registered tools, persisted state, verification and continuation rules.
+
+| Loop step | Navo objects | Responsibility |
+| --- | --- | --- |
+| Observe | Accounts, Signals, Evidence, Memory | Load account state and source-backed context |
+| Plan | `MissionPlan` | Turn an operator outcome into structured work |
+| Execute | Mission, registered tools, worker runs | Perform research, qualification and drafting |
+| Verify | Evidence, rules, persisted results | Check grounding, identity and postconditions |
+| Decide | Approval, operator action | Control every external action |
+| Learn | Conversations, Memory, Tasks | Preserve outcomes as reusable business state |
+| Continue | Next Best Action, successor Mission | Start one bounded follow-up or stop |
+
+A Mission is not a chat session. Agents operate through structured plans, registered tools,
+persisted state, explicit limits and human approval checkpoints. Completed Missions produce
+next-best actions, owned tasks, memory and, when warranted, bounded follow-up Missions.
+
 ## Product flow
 
-The primary AI Sales Agent flow is:
+The primary Mission execution flow is:
 
 ```text
 Knowledge + ICP

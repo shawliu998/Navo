@@ -1,7 +1,13 @@
 <h1 align="center">Navo</h1>
 
 <p align="center">
-  <strong>Turn account evidence into qualified opportunities, reviewed outreach, and owned next actions.</strong>
+  <strong>Turn account evidence into agent-driven missions, verified decisions, and owned next actions.</strong>
+</p>
+
+<p align="center">
+  Navo is an operator-first agent-native workspace for industrial B2B teams. Missions combine
+  account intelligence, research execution, human approval, and next-best actions into a
+  continuous operating loop.
 </p>
 
 <p align="center">
@@ -24,7 +30,9 @@
 
 ## What is this, really?
 
-Navo is an account-intelligence and outbound-orchestration workspace for industrial B2B teams.
+Navo is an operator-first agent-native account-intelligence and outbound-orchestration workspace
+for industrial B2B teams. Its execution primitive is the Mission: a durable work object with a
+goal, plan, execution state, evidence, decisions, and outcomes.
 
 It starts with a target account, gathers source-backed evidence, separates facts from inference,
 qualifies the opportunity, prepares a message for human review, and turns the reply into an owned
@@ -34,6 +42,15 @@ next action. The interface is built around that operating loop—not around a ch
 Accounts → Signals / Evidence → Research → Qualification → Contacts
 → Mission / Play → Message / Sequence → Replies → Next Best Action
 ```
+
+### The Navo Agent Loop
+
+```text
+Observe → Plan → Execute → Verify → Decide → Learn → Continue
+```
+
+Navo agents do not replace operators. They execute bounded Missions, preserve evidence, and
+surface the next action that moves an account forward.
 
 In practice, Navo feels like a compact sales operations workspace. Underneath, it is a bounded
 execution system: model output is structured, evidence is traceable, workflow state is durable,
@@ -184,4 +201,4 @@ artifacts       Recruiter-facing screenshots and packaged portfolio
 - Not a claim that every visible capability is production-ready.
 
 What it is: a concrete study in turning uncertain model output into observable, bounded, and
-testable business behavior.
+testable business behavior through a Mission-centered Agent Loop.

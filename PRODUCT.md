@@ -1,8 +1,20 @@
 # Navo product context
 
-Navo is an account-intelligence and outbound-orchestration workspace for industrial export teams. It helps operators turn target accounts, external signals and source-backed research into qualified opportunities, relevant contacts, outbound work, replies and concrete next actions.
+Navo is an operator-first agent-native account-intelligence and outbound-orchestration workspace for industrial B2B teams. Missions are durable work objects that transform evidence into verified decisions, approved actions and next-best actions.
+
+It helps operators turn target accounts, external signals and source-backed research into qualified opportunities, relevant contacts, outbound work, replies and concrete next actions.
 
 Its product identity comes from the operator workflow, not from agent infrastructure, local deployment or security administration. Those are supporting constraints and secondary settings surfaces.
+
+## Agent-native product model
+
+Navo is built around Missions rather than conversations. Operators define outcomes; Navo plans and executes bounded work, verifies results against persisted evidence, and returns decisions and actions to the operating workflow.
+
+```text
+Observe → Plan → Execute → Verify → Decide → Learn → Continue
+```
+
+The loop maps to existing product objects: Accounts, Signals, Evidence and Memory provide context; `MissionPlan` structures the work; registered tools and worker runs execute it; evidence, rules and persisted results verify it; operator approvals decide external actions; conversations, memory and tasks retain the outcome; and a next-best action or bounded successor Mission continues the work.
 
 ## Primary user jobs
 
