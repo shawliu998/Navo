@@ -51,7 +51,7 @@ export default async function OverviewPage() {
     <div className="page command-center-page">
       <PageHeader
         title="Command Center"
-        description="Set an outcome, inspect Navo's live plan, and keep every external action inside an explicit approval boundary."
+        description="Set an outcome, inspect the active Mission plan, and keep every external action inside an explicit approval boundary."
         actions={(
           <>
             <Link href="/app/missions" className="button button-secondary"><Target size={15} />All missions</Link>
@@ -167,7 +167,7 @@ export default async function OverviewPage() {
         </article>
 
         <article className="card">
-          <div className="card-header"><div><h2>Recent missions</h2><span className="card-subtitle">Current and recently updated AI Sales Missions</span></div><Link href="/app/missions" className="muted">View all</Link></div>
+          <div className="card-header"><div><h2>Recent missions</h2><span className="card-subtitle">Durable work with persisted execution state</span></div><Link href="/app/missions" className="muted">View all</Link></div>
           {agent.recentMissions.map((item) => (
             <Link href={`/app/missions/${item.id}`} className="list-row" key={item.id}>
               <span><strong style={{ display: "block", fontSize: 12 }}>{item.name}</strong><small className="muted">{item.progress}% · {item.provider ?? "provider pending"}{item.model ? ` · ${item.model}` : ""}</small></span>
