@@ -102,7 +102,7 @@ describe("structured AI contracts", () => {
 
 describe("AI provider contract regressions", () => {
   it("sends the requested JSON Schema to DeepSeek", async () => {
-    let requestBody: { messages?: Array<{ role?: string; content?: string }> } | undefined;
+    let requestBody: { model?: string; thinking?: { type?: string }; messages?: Array<{ role?: string; content?: string }> } | undefined;
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
       requestBody = JSON.parse(String(init?.body));
       return new Response(JSON.stringify({
@@ -122,6 +122,8 @@ describe("AI provider contract regressions", () => {
     });
 
     expect(result.data).toEqual({ answer: "ok" });
+    expect(requestBody?.model).toBe("deepseek-v4-flash");
+    expect(requestBody?.thinking).toEqual({ type: "disabled" });
     expect(requestBody?.messages?.[0]?.content).toContain("JSON Schema");
     expect(requestBody?.messages?.[0]?.content).toContain('"answer"');
     expect(requestBody?.messages?.[0]?.content).toContain('"additionalProperties":false');

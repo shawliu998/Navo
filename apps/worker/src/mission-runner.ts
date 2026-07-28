@@ -5,9 +5,9 @@ import {
   toolCalls, workspaces,
 } from "@navo/db";
 import {
-  accountRankingOutputSchema, buildOperationInstruction, companyResearchOutputSchema, contactDiscoveryOutputSchema, DeepSeekAIProvider,
-  emptyMissionWorkingMemory, getAIProvider, missionPlanSchema, missionResultSchema,
-  missionWorkingMemorySchema, MockAIProvider, outreachDraftSchema, prohibitedOutreachClaims,
+  accountRankingOutputSchema, buildOperationInstruction, companyResearchOutputSchema, contactDiscoveryOutputSchema,
+  emptyMissionWorkingMemory, missionPlanSchema, missionResultSchema,
+  missionWorkingMemorySchema, outreachDraftSchema, prohibitedOutreachClaims,
   qualificationOutputSchema, replyDraftOutputSchema, salesSignalOutputSchema, validateOutreachDraft,
   type AIProvider, type CompanyResearchOutput, type ContactDiscoveryOutput, type MissionPlan, type MissionResult, type MissionStepType,
   type MissionWorkingMemory, type OutreachDraft, type SalesSignalOutput,
@@ -19,6 +19,7 @@ import { fetchWebsiteResearch, type WebsiteResearchData, type WebsiteResearchInp
 import { isLocalDemoWebsite, loadLocalWebsiteResearchFixture } from "@navo/workflows/website-research/fixture";
 import { markStep, persistRuntime, resetPlanSteps, skipPendingSteps } from "./mission-persistence";
 import { scheduleMissionContinuation } from "./mission-continuation";
+import { resolveWorkspaceAIProvider } from "./ai-provider-resolver";
 
 const fallbackUserId = "00000000-0000-4000-8000-000000000002";
 type MissionRunInput = { workspaceId: string; missionId: string };
@@ -80,12 +81,6 @@ function persistedResult(value: unknown): PersistedResult {
   };
 }
 
-function providerForMission(provider: string | null, model: string | null) {
-  if (provider === "mock-ai") return new MockAIProvider();
-  if (provider === "deepseek") return new DeepSeekAIProvider(process.env.DEEPSEEK_API_KEY ?? "", { baseUrl: process.env.DEEPSEEK_BASE_URL, model: model ?? process.env.DEEPSEEK_MODEL });
-  return getAIProvider();
-}
-
 export function validateResearchEvidence(output: CompanyResearchOutput, website: WebsiteResearchData) {
   const pages = new Map(website.pages.map((page) => [page.url, page]));
   for (const [index, item] of output.evidence.entries()) {
@@ -141,12 +136,12 @@ function contactScore(contact: Pick<ContactRow, "title" | "persona" | "confidenc
 }
 
 async function defaultWebsiteResearch(input: WebsiteResearchInput): Promise<WebsiteResearchOutput> {
-  if (isLocalDemoWebsite(input.websiteUrl)) return { ok: true, data: await loadLocalWebsiteResearchFixture(input.accountId, input.websiteUrl) };
+  if (isLocalDemoWebsite(input.websiteUrl)) return { ok: true, data: await loadLocalWebsiteResearchFixture(input.accountId, input.websiteUrl, new Date(), { accountName: input.accountName }) };
   return fetchWebsiteResearch(input);
 }
 
 async function mockWebsiteResearch(input: WebsiteResearchInput): Promise<WebsiteResearchOutput> {
-  return { ok: true, data: await loadLocalWebsiteResearchFixture(input.accountId, input.websiteUrl, new Date(), { allowAnyBase: true }) };
+  return { ok: true, data: await loadLocalWebsiteResearchFixture(input.accountId, input.websiteUrl, new Date(), { allowAnyBase: true, accountName: input.accountName }) };
 }
 
 function isHardExcluded(account: AccountRow, exclusions: string[]) {
@@ -478,7 +473,7 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
         fetched.push({ accountId, pageCount: artifact.website.pages.length });
         continue;
       }
-      const website = await withLocalRetry("WEBSITE_FETCH", () => runtime.fetchResearch({ accountId, websiteUrl: artifact.account.website! }));
+      const website = await withLocalRetry("WEBSITE_FETCH", () => runtime.fetchResearch({ accountId, accountName: artifact.account.name, websiteUrl: artifact.account.website! }));
       if (!website.ok) { failures.push({ accountId, error: `${website.error.code}: ${website.error.message}` }); continue; }
       artifact.website = website.data;
       runtime.result.websiteByAccount[accountId] = website.data;
@@ -646,7 +641,7 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
 
     if (!artifact.contacts.length) {
       const focusedResearch = artifact.account.website
-        ? await runtime.fetchResearch({ accountId: artifact.account.id, websiteUrl: artifact.account.website, focus: "CONTACTS" })
+        ? await runtime.fetchResearch({ accountId: artifact.account.id, accountName: artifact.account.name, websiteUrl: artifact.account.website, focus: "CONTACTS" })
         : null;
       const contactWebsite = focusedResearch?.ok ? focusedResearch.data : artifact.website;
       const discoveryInput = {
@@ -827,12 +822,36 @@ function createRegistry(input: MissionRunInput, runtime: Runtime) {
     }
     const best = runtime.memory.bestAccountId ? runtime.artifacts.get(runtime.memory.bestAccountId) : undefined;
     const rankingReason = runtime.result.ranking?.rankedAccounts.find((item) => item.accountId === runtime.memory.bestAccountId)?.reason ?? null;
-    const generated = await withLocalRetry("MISSION_SUMMARY", () => runtime.ai.generateStructured({ operation: "mission-summary", systemInstruction: buildOperationInstruction("mission-summary", "Summarize persisted artifacts only. State clearly that outreach remains DRAFT."), input: { outcome: runtime.result.outcome ?? (best ? "OPPORTUNITY_FOUND" : "NO_SUITABLE_MATCH"), decisionSummary: runtime.result.decisionSummary ?? runtime.memory.notes.at(-1), accountsInvestigated: runtime.memory.researchedAccountIds.length, bestAccountId: runtime.memory.bestAccountId, bestContactId: runtime.memory.bestContactId, bestContact: best?.bestContact ? { name: best.bestContact.name, title: best.bestContact.title } : null, bestAccountReason: rankingReason, keySignals: best?.signals.map((signal) => signal.summary) ?? [], qualificationSummary: best?.qualification ? `${best.qualification.status} at ${best.qualification.score}/100` : "No qualification", outreachDraftId: runtime.result.messageId ?? null, taskIds: runtime.result.taskIds, memoryFactIds: runtime.result.memoryFactIds, plannerMode: runtime.mission.plannerMode, fallbackReason: runtime.mission.plannerFallbackReason }, outputSchema: missionResultSchema, promptVersion: "mission-summary-v3", temperature: 0.1, maxTokens: 1_000 }));
-    Object.assign(runtime.result, generated.data);
+    const outcome = runtime.result.outcome ?? (best ? "OPPORTUNITY_FOUND" : "NO_SUITABLE_MATCH");
+    const accountsInvestigated = runtime.memory.researchedAccountIds.length;
+    const keySignals = best?.signals.map((signal) => signal.summary) ?? [];
+    const qualificationSummary = best?.qualification ? `${best.qualification.status} at ${best.qualification.score}/100` : "No qualification";
+    const generated = await withLocalRetry("MISSION_SUMMARY", () => runtime.ai.generateStructured({ operation: "mission-summary", systemInstruction: buildOperationInstruction("mission-summary", "Summarize persisted artifacts only. Use the exact selectedAccount name and ID when supplied; never introduce another company. State clearly that outreach remains DRAFT."), input: { outcome, decisionSummary: runtime.result.decisionSummary ?? runtime.memory.notes.at(-1), accountsInvestigated, selectedAccount: best ? { id: best.account.id, name: best.account.name } : null, bestAccountId: runtime.memory.bestAccountId, bestContactId: runtime.memory.bestContactId, bestContact: best?.bestContact ? { name: best.bestContact.name, title: best.bestContact.title } : null, bestAccountReason: rankingReason, keySignals, qualificationSummary, outreachDraftId: runtime.result.messageId ?? null, taskIds: runtime.result.taskIds, memoryFactIds: runtime.result.memoryFactIds, plannerMode: runtime.mission.plannerMode, fallbackReason: runtime.mission.plannerFallbackReason }, outputSchema: missionResultSchema, promptVersion: "mission-summary-v4", temperature: 0.1, maxTokens: 1_000 }));
+    const groundedSummary = best
+      ? `Navo investigated ${accountsInvestigated} account${accountsInvestigated === 1 ? "" : "s"} and selected ${best.account.name} from persisted ranking and qualification evidence.${keySignals.length ? ` Key signals: ${keySignals.slice(0, 3).join("; ")}.` : ""} Outreach remains DRAFT; no email was sent.`
+      : `Navo investigated ${accountsInvestigated} account${accountsInvestigated === 1 ? "" : "s"} and found no suitable match within the bounded evidence set. No outreach was sent.`;
+    const groundedResult = missionResultSchema.parse({
+      ...generated.data,
+      outcome,
+      decisionSummary: best ? `${best.account.name} was selected from persisted evidence and bounded checkpoint decisions.` : "No account met the bounded qualification and evidence requirements.",
+      summary: groundedSummary,
+      accountsInvestigated,
+      bestAccountId: runtime.memory.bestAccountId,
+      bestContactId: runtime.memory.bestContactId,
+      bestAccountReason: rankingReason ?? generated.data.bestAccountReason,
+      keySignals,
+      qualificationSummary,
+      outreachDraftId: runtime.result.messageId ?? null,
+      taskIds: runtime.result.taskIds,
+      memoryFactIds: runtime.result.memoryFactIds,
+      plannerMode: runtime.mission.plannerMode,
+      fallbackReason: runtime.mission.plannerFallbackReason,
+    });
+    Object.assign(runtime.result, groundedResult);
     runtime.result.research = best?.research;
     runtime.result.qualification = best?.qualification;
-    runtime.memory.lastObservation = generated.data.summary;
-    return generated.data;
+    runtime.memory.lastObservation = groundedResult.summary;
+    return groundedResult;
   });
 
   return registry.assertComplete();
@@ -857,7 +876,7 @@ export async function executeMission(input: MissionRunInput, dependencies: Runne
   if (mission.status !== "RUNNING") throw new Error(`MISSION_NOT_RUNNING: expected RUNNING, received ${mission.status}.`);
   const plan = missionPlanSchema.parse(mission.plan);
   const runtime: Runtime = {
-    mission, userId: mission.createdBy ?? fallbackUserId, ai: dependencies.ai ?? providerForMission(mission.provider, mission.model),
+    mission, userId: mission.createdBy ?? fallbackUserId, ai: dependencies.ai ?? await resolveWorkspaceAIProvider(input.workspaceId, mission.provider, mission.model),
     now: dependencies.now ?? (() => new Date()), fetchResearch: dependencies.websiteResearch ?? (mission.provider === "mock-ai" ? mockWebsiteResearch : defaultWebsiteResearch),
     plan, memory: missionWorkingMemorySchema.safeParse(mission.workingMemory).success ? missionWorkingMemorySchema.parse(mission.workingMemory) : emptyMissionWorkingMemory(),
     result: persistedResult(mission.result),

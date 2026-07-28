@@ -75,6 +75,24 @@ class WrongContinuationTargetProvider extends MockAIProvider {
   }
 }
 
+class HallucinatedSummaryProvider extends MockAIProvider {
+  override async generateStructured<T>(request: StructuredGenerationRequest<T>): Promise<StructuredGenerationResult<T>> {
+    const generated = await super.generateStructured(request);
+    if (request.operation !== "mission-summary") return generated;
+    return {
+      ...generated,
+      data: request.outputSchema.parse({
+        ...(generated.data as Record<string, unknown>),
+        summary: "Atlas Industrial Systems was selected as the best account.",
+        decisionSummary: "Atlas Industrial Systems won the ranking.",
+        accountsInvestigated: 999,
+        bestAccountId: randomUUID(),
+        keySignals: ["Unsupported signal"],
+      }),
+    };
+  }
+}
+
 describe("autonomous mission runner integration", () => {
   it("completes a Mock mission and persists every required artifact", async () => {
     const fixture = await createTestMission();
@@ -228,6 +246,18 @@ describe("autonomous mission runner integration", () => {
     expect(draftCount?.value).toBe(0);
     expect(taskCount?.value).toBe(0);
     expect(contactCount?.value).toBe(0);
+  }, 20_000);
+
+  it("grounds the final narrative in persisted account identities and authoritative artifacts", async () => {
+    const fixture = await createTestMission(1, "OPPORTUNITY_DISCOVERY");
+    const result = await executeMissionDirect({ workspaceId: fixture.workspaceId, missionId: fixture.missionId }, { ai: new HallucinatedSummaryProvider() });
+    const mission = await missionState(fixture.workspaceId, fixture.missionId);
+    expect(result.bestAccountId).toBe(fixture.accountId);
+    expect(result.accountsInvestigated).toBe(1);
+    expect(result.summary).toContain("Demo Mission Manufacturer GmbH");
+    expect(result.summary).not.toContain("Atlas Industrial Systems");
+    expect(result.decisionSummary).toContain("Demo Mission Manufacturer GmbH");
+    expect((mission.result as { summary: string }).summary).toBe(result.summary);
   }, 20_000);
 
   it("creates, queues and completes one useful successor Mission before stopping the chain", async () => {
