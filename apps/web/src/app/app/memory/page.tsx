@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BrainCircuit, CheckCircle2, Clock3, Database, Package, ShieldCheck, Target } from "lucide-react";
 import { DEMO_WORKSPACE_ID, getAgentMemory } from "@navo/db/queries";
 import { Badge, MetricCard, PageHeader } from "@navo/ui";
+import { NavoBrand } from "@/components/navo-brand";
 
 export const metadata = { title: "Memory" };
 
@@ -29,7 +30,7 @@ export default async function MemoryPage() {
             <Badge tone={Number(memory.confidence) >= .8 ? "success" : "warning"}>{Math.round(Number(memory.confidence) * 100)}%</Badge>
           </div>)}
         </article>)}
-        {data.facts.length === 0 && <div className="empty-state"><BrainCircuit/><strong>尚无活跃记忆</strong><p>当 Reply Intelligence 验证一个事实后，它会出现在这里。</p></div>}
+        {data.facts.length === 0 && <div className="empty-state"><NavoBrand mode="mark" className="empty-state-brand-mark"/><strong>尚无活跃记忆</strong><p>当 Reply Intelligence 验证一个事实后，它会出现在这里。</p></div>}
       </div>
       <aside className="stack">
         <section className="card"><div className="card-header"><div><h2>Loaded knowledge</h2><span className="card-subtitle">Workspace context available to the agent</span></div><Database size={16}/></div>

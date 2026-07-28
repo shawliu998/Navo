@@ -1,6 +1,47 @@
 import Link from "next/link";
-import { Clock3, Filter, ListChecks, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Filter } from "lucide-react";
 import { DEMO_WORKSPACE_ID, getApprovals } from "@navo/db/queries";
 import { Badge, PageHeader, StatusBadge } from "@navo/ui";
-export const metadata={title:"Approvals"};
-export default async function ApprovalsPage(){const items=await getApprovals(DEMO_WORKSPACE_ID);const pending=items.filter(item=>item.approval.status==="PENDING").length;return <div className="page page-wide"><PageHeader eyebrow="HUMAN CONTROL" title="Actions needing your decision" description={`${pending} outbound actions are waiting. Navo provides the mission goal, recommendation, evidence and guardrails before you decide.`} actions={<button className="button button-secondary" disabled title="Advanced approval filters are not available in this Alpha."><Filter size={15}/>Filters</button>}/><div className="toolbar"><div className="toolbar-group">{["Pending","Approved","Rejected","Changes Requested","Expired"].map((item,index)=><button className={`button ${index===0?"button-primary":"button-secondary"}`} disabled={index>0} title={index>0?"Status filtering is coming after the Alpha.":undefined} key={item}>{item}{index===0&&<span className="badge badge-neutral">{pending}</span>}</button>)}</div><Badge tone="success"><ShieldCheck size={12}/>Every outbound action needs approval</Badge></div><div className="table-shell"><table className="data-table"><thead><tr><th>Proposed action</th><th>Mission</th><th>Status</th><th>Risk</th><th>Persona</th><th>Waiting</th><th>Reviewer</th></tr></thead><tbody>{items.map(({approval,accountName,contactName,contactTitle,missionId,missionName})=><tr key={approval.id}><td><Link href={`/app/approvals/${approval.id}`} className="company-cell"><span className="company-logo"><ListChecks size={14}/></span><span className="company-meta"><strong>Review outreach to {accountName}</strong><small>{contactName} · {contactTitle}</small></span></Link></td><td>{missionId?<Link href={`/app/missions/${missionId}`}><strong>{missionName}</strong></Link>:<span className="muted">Standalone playbook</span>}</td><td><StatusBadge status={approval.status}/></td><td><Badge tone={approval.risk==="LOW"?"success":"warning"}>{approval.risk}</Badge></td><td>{approval.persona}</td><td><span style={{display:"inline-flex",gap:5,alignItems:"center"}}><Clock3 size={13}/>{approval.status==="PENDING"?"18h":"—"}</span></td><td>{approval.reviewerName??"Unassigned"}</td></tr>)}</tbody></table></div></div>}
+
+export const metadata = { title: "Approvals" };
+
+export default async function ApprovalsPage() {
+  const items = await getApprovals(DEMO_WORKSPACE_ID);
+  const pending = items.filter((item) => item.approval.status === "PENDING").length;
+  const visibleItems = items.filter((item) => item.approval.status === "PENDING");
+
+  return <div className="page page-wide approval-queue-page">
+    <PageHeader
+      title="Actions needing your decision"
+      description="Outbound actions remain blocked until a human reviews the goal, evidence, recommendation, and guardrails."
+    />
+
+    <div className="approval-queue-controls">
+      <nav className="approval-tabs" aria-label="Approval status">
+        <button className="approval-tab approval-tab-active" type="button">Pending {pending}</button>
+        {['Approved', 'Changes requested', 'Rejected', 'Expired'].map((label) => (
+          <button className="approval-tab" type="button" key={label} disabled title="Status filtering is coming after the Alpha.">{label}</button>
+        ))}
+      </nav>
+      <div className="approval-queue-actions">
+        <Badge tone="success" className="approval-policy"><CheckCircle2 size={12} />Every outbound action requires approval</Badge>
+        <button className="button button-secondary" disabled title="Advanced approval filters are not available in this Alpha."><Filter size={14} />Filters</button>
+      </div>
+    </div>
+
+    <div className="table-shell approval-table-shell">
+      <table className="data-table approval-table">
+        <thead><tr><th>Proposed action</th><th>Account</th><th>Mission</th><th>Risk</th><th>Status</th></tr></thead>
+        <tbody>{visibleItems.map(({ approval, accountName, contactName, contactTitle, missionId, missionName }, index) => (
+          <tr key={`${approval.id}-${index}`} className={index === 0 ? "approval-row-active" : undefined}>
+            <td><Link href={`/app/approvals/${approval.id}`} className="approval-action-cell"><strong>Review outreach message</strong><small>{contactName} · {contactTitle}</small></Link></td>
+            <td>{accountName}</td>
+            <td>{missionId ? <Link href={`/app/missions/${missionId}`}>{missionName}</Link> : <span className="muted">Standalone playbook</span>}</td>
+            <td><Badge tone={approval.risk === "LOW" ? "success" : "warning"}>{approval.risk === "LOW" ? "Low" : "Medium"}</Badge></td>
+            <td><StatusBadge status={approval.status} /></td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  </div>;
+}

@@ -173,12 +173,17 @@ export function PlayBuilder({
   const [message, setMessage] = useState(
     "Graph is valid and ready for a test run.",
   );
+  const [nodeSearch, setNodeSearch] = useState("");
   const [flow, setFlow] = useState<ReactFlowInstance<
     Node<FlowData>,
     Edge
   > | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selected = nodes.find((node) => node.id === selectedId);
+  const visibleRegistry = nodeRegistry.filter((node) => {
+    const query = nodeSearch.trim().toLocaleLowerCase();
+    return !query || `${node.label} ${node.category} ${node.type}`.toLocaleLowerCase().includes(query);
+  });
   const save = useCallback(
     async (nextNodes = nodes, nextEdges = edges) => {
       setSaveState("saving");
@@ -321,10 +326,10 @@ export function PlayBuilder({
           </span>
         </div>
         <div className="builder-toolbar-group">
-          <button className="dark-button" aria-label="撤销">
+          <button className="dark-button" aria-label="撤销" disabled title="Undo history is not available in this Alpha.">
             <Undo2 size={14} />
           </button>
-          <button className="dark-button" aria-label="重做">
+          <button className="dark-button" aria-label="重做" disabled title="Redo history is not available in this Alpha.">
             <Redo2 size={14} />
           </button>
           <button
@@ -346,12 +351,12 @@ export function PlayBuilder({
       </header>
       <aside className="node-palette">
         <div className="palette-title">Node Library</div>
-        <input className="palette-search" placeholder="Search nodes…" />
-        {[...new Set(nodeRegistry.map((node) => node.category))].map(
+        <input className="palette-search" placeholder="Search nodes…" value={nodeSearch} onChange={(event) => setNodeSearch(event.target.value)} aria-label="Search node library" />
+        {[...new Set(visibleRegistry.map((node) => node.category))].map(
           (category) => (
             <div key={category}>
               <div className="palette-group">{category}</div>
-              {nodeRegistry
+              {visibleRegistry
                 .filter((node) => node.category === category)
                 .map((node) => {
                   const Icon = icons[category] ?? Workflow;

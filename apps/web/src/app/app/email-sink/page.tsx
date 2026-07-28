@@ -3,6 +3,7 @@ import { FlaskConical, MailCheck, ShieldCheck } from "lucide-react";
 import { DEMO_WORKSPACE_ID, getEmailSinkMessages } from "@navo/db/queries";
 import { Badge, PageHeader, StatusBadge } from "@navo/ui";
 import { EmailSinkActions } from "@/components/email-sink-actions";
+import { NavoBrand } from "@/components/navo-brand";
 
 export default async function EmailSinkPage({ searchParams }: { searchParams: Promise<{ messageId?: string }> }) {
   const { messageId } = await searchParams;
@@ -21,7 +22,7 @@ export default async function EmailSinkPage({ searchParams }: { searchParams: Pr
       <aside className="stack">
         <section className="card">
           <div className="card-header"><h2>Simulate inbound event</h2><FlaskConical size={17} className="muted" /></div>
-          {selected ? <><p className="summary-text"><strong>{selected.message.subject}</strong><br /><span className="muted">To {selected.contactName ?? "demo contact"}</span></p><EmailSinkActions messageId={selected.message.id} /></> : <div className="empty-state">No sent EmailSink messages.</div>}
+          {selected ? <><p className="summary-text"><strong>{selected.message.subject}</strong><br /><span className="muted">To {selected.contactName ?? "demo contact"}</span></p><EmailSinkActions messageId={selected.message.id} /></> : <div className="empty-state"><NavoBrand mode="mark" className="empty-state-brand-mark"/><strong>No sent EmailSink messages</strong><p>Test-mode delivery activity will appear here.</p></div>}
         </section>
         <section className="alert alert-warning"><ShieldCheck size={16} /><span>Unsubscribe, bounce and complaint events update suppression before any next action is proposed.</span></section>
       </aside>
