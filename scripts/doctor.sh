@@ -35,6 +35,10 @@ check_node() {
   command -v node >/dev/null && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)'
 }
 
+check_encryption_key() {
+  [[ "${NAVO_ENCRYPTION_KEY:-}" =~ ^[0-9a-fA-F]{64}$ ]]
+}
+
 check_database() {
   pnpm --filter @navo/db exec node - <<'NODE'
 const { Pool } = require("pg");
@@ -109,6 +113,7 @@ echo "Navo local doctor"
 check "Node.js 20+" check_node
 check "pnpm available" command -v pnpm
 check "Local .env.local configuration" test -f .env.local
+check "Workspace credential encryption key" check_encryption_key
 check "Docker daemon" docker info
 check "Docker Compose" docker compose version
 check "PostgreSQL + autonomous schema + demo workspace" check_database

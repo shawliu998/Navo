@@ -4,6 +4,7 @@ import {
 } from "@navo/db";
 import type { AIProvider, MissionPlan } from "@navo/agents";
 import { createDeterministicMissionPlan } from "@navo/workflows/mission-planner";
+import { getWorkspaceAIExecutionDescriptor } from "./ai-provider-resolver";
 
 export type ReplyFollowUpInput = { workspaceId: string; inboundMessageId: string };
 export type ReplyFollowUpDependencies = {
@@ -12,11 +13,6 @@ export type ReplyFollowUpDependencies = {
 };
 
 const fallbackUserId = "00000000-0000-4000-8000-000000000002";
-
-function executionProvider() {
-  if (process.env.AI_PROVIDER === "deepseek") return { provider: "deepseek", model: process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash" };
-  return { provider: "mock-ai", model: "deterministic-v1" };
-}
 
 async function queueReadyReplyMission(
   input: ReplyFollowUpInput,
@@ -71,7 +67,7 @@ export async function createReplyFollowUpMission(input: ReplyFollowUpInput, depe
     replyContext,
     maximumIterations: 8,
   }, "Reply-triggered Missions use a fixed bounded plan to avoid an unnecessary planner model call.");
-  const runtime = executionProvider();
+  const runtime = await getWorkspaceAIExecutionDescriptor(input.workspaceId);
   let mission;
   try {
     mission = await createMission(input.workspaceId, source.createdBy ?? fallbackUserId, {

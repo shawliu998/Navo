@@ -3,22 +3,17 @@ import {
   accounts, agentEvents, agentMissions, agentMissionTargets, agentProfiles, createMissionContinuation, db, failMissionQueue, prepareMissionStart,
 } from "@navo/db";
 import {
-  buildOperationInstruction, DeepSeekAIProvider, getAIProvider, missionContinuationDecisionSchema, missionPlanSchema, MockAIProvider,
+  buildOperationInstruction, missionContinuationDecisionSchema, missionPlanSchema,
   type AIProvider, type MissionContinuationDecision, type MissionResult, type MissionType,
 } from "@navo/agents";
 import { planMission } from "@navo/workflows/mission-planner";
+import { resolveWorkspaceAIProvider } from "./ai-provider-resolver";
 
 export type ContinuationInput = { workspaceId: string; missionId: string };
 export type ContinuationDependencies = {
   ai?: AIProvider;
   enqueueMission?: (input: ContinuationInput) => Promise<unknown>;
 };
-
-function providerForMission(provider: string | null, model: string | null) {
-  if (provider === "mock-ai") return new MockAIProvider();
-  if (provider === "deepseek") return new DeepSeekAIProvider(process.env.DEEPSEEK_API_KEY ?? "", { baseUrl: process.env.DEEPSEEK_BASE_URL, model: model ?? process.env.DEEPSEEK_MODEL });
-  return getAIProvider();
-}
 
 async function continuationEvent(input: ContinuationInput, userId: string, values: { type: string; title: string; description?: string; severity?: string; metadata?: Record<string, unknown> }) {
   await db.insert(agentEvents).values({ workspaceId: input.workspaceId, createdBy: userId, missionId: input.missionId, type: values.type, title: values.title, description: values.description, severity: values.severity ?? "INFO", occurredAt: new Date(), metadata: values.metadata ?? {} });
@@ -66,7 +61,7 @@ export async function scheduleMissionContinuation(input: ContinuationInput, depe
   const result = completedResult(parent.result);
   const parsedCriteria = missionPlanSchema.shape.targetCriteria.safeParse(parent.targetCriteria);
   const targetCriteria = parsedCriteria.success ? parsedCriteria.data : { countries: [], industries: [], companyTypes: ["Industrial B2B company"], keywords: ["automation", "quality", "production"] };
-  const ai = dependencies.ai ?? providerForMission(parent.provider, parent.model);
+  const ai = dependencies.ai ?? await resolveWorkspaceAIProvider(input.workspaceId, parent.provider, parent.model);
   const requiredAction = parent.type !== "OUTREACH_PREPARATION" && (result.bestAccountId || remainingAccounts.length) ? "CREATE_SUCCESSOR" : "STOP";
   const continuationInput = {
       completedMission: {

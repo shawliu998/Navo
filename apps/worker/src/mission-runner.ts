@@ -5,9 +5,9 @@ import {
   toolCalls, workspaces,
 } from "@navo/db";
 import {
-  accountRankingOutputSchema, buildOperationInstruction, companyResearchOutputSchema, contactDiscoveryOutputSchema, DeepSeekAIProvider,
-  emptyMissionWorkingMemory, getAIProvider, missionPlanSchema, missionResultSchema,
-  missionWorkingMemorySchema, MockAIProvider, outreachDraftSchema, prohibitedOutreachClaims,
+  accountRankingOutputSchema, buildOperationInstruction, companyResearchOutputSchema, contactDiscoveryOutputSchema,
+  emptyMissionWorkingMemory, missionPlanSchema, missionResultSchema,
+  missionWorkingMemorySchema, outreachDraftSchema, prohibitedOutreachClaims,
   qualificationOutputSchema, replyDraftOutputSchema, salesSignalOutputSchema, validateOutreachDraft,
   type AIProvider, type CompanyResearchOutput, type ContactDiscoveryOutput, type MissionPlan, type MissionResult, type MissionStepType,
   type MissionWorkingMemory, type OutreachDraft, type SalesSignalOutput,
@@ -19,6 +19,7 @@ import { fetchWebsiteResearch, type WebsiteResearchData, type WebsiteResearchInp
 import { isLocalDemoWebsite, loadLocalWebsiteResearchFixture } from "@navo/workflows/website-research/fixture";
 import { markStep, persistRuntime, resetPlanSteps, skipPendingSteps } from "./mission-persistence";
 import { scheduleMissionContinuation } from "./mission-continuation";
+import { resolveWorkspaceAIProvider } from "./ai-provider-resolver";
 
 const fallbackUserId = "00000000-0000-4000-8000-000000000002";
 type MissionRunInput = { workspaceId: string; missionId: string };
@@ -78,12 +79,6 @@ function persistedResult(value: unknown): PersistedResult {
     taskIds: source.taskIds ?? [],
     memoryFactIds: source.memoryFactIds ?? [],
   };
-}
-
-function providerForMission(provider: string | null, model: string | null) {
-  if (provider === "mock-ai") return new MockAIProvider();
-  if (provider === "deepseek") return new DeepSeekAIProvider(process.env.DEEPSEEK_API_KEY ?? "", { baseUrl: process.env.DEEPSEEK_BASE_URL, model: model ?? process.env.DEEPSEEK_MODEL });
-  return getAIProvider();
 }
 
 export function validateResearchEvidence(output: CompanyResearchOutput, website: WebsiteResearchData) {
@@ -881,7 +876,7 @@ export async function executeMission(input: MissionRunInput, dependencies: Runne
   if (mission.status !== "RUNNING") throw new Error(`MISSION_NOT_RUNNING: expected RUNNING, received ${mission.status}.`);
   const plan = missionPlanSchema.parse(mission.plan);
   const runtime: Runtime = {
-    mission, userId: mission.createdBy ?? fallbackUserId, ai: dependencies.ai ?? providerForMission(mission.provider, mission.model),
+    mission, userId: mission.createdBy ?? fallbackUserId, ai: dependencies.ai ?? await resolveWorkspaceAIProvider(input.workspaceId, mission.provider, mission.model),
     now: dependencies.now ?? (() => new Date()), fetchResearch: dependencies.websiteResearch ?? (mission.provider === "mock-ai" ? mockWebsiteResearch : defaultWebsiteResearch),
     plan, memory: missionWorkingMemorySchema.safeParse(mission.workingMemory).success ? missionWorkingMemorySchema.parse(mission.workingMemory) : emptyMissionWorkingMemory(),
     result: persistedResult(mission.result),

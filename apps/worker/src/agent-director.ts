@@ -4,10 +4,11 @@ import {
   accounts, agentEvents, agentMissionTargets, agentMissions, agentProfiles, createMission, db, failMissionQueue, icpProfiles, prepareMissionStart, signals, tasks,
 } from "@navo/db";
 import {
-  agentDirectorDecisionSchema, buildOperationInstruction, DeepSeekAIProvider, getAIProvider, MockAIProvider,
+  agentDirectorDecisionSchema, buildOperationInstruction,
   type AIProvider, type AgentDirectorDecision, type MissionType,
 } from "@navo/agents";
 import { planMission } from "@navo/workflows/mission-planner";
+import { resolveWorkspaceAIProvider } from "./ai-provider-resolver";
 
 export type AgentDirectorInput = { workspaceId: string; trigger?: string; resourceId?: string };
 export type AgentDirectorDependencies = {
@@ -18,12 +19,6 @@ export type AgentDirectorDependencies = {
 
 const fallbackUserId = "00000000-0000-4000-8000-000000000002";
 const activeStatuses = ["PLANNING", "ACTIVE", "RUNNING", "WAITING"];
-
-function providerForDirector() {
-  if (process.env.AI_PROVIDER === "mock") return new MockAIProvider();
-  if (process.env.AI_PROVIDER === "deepseek") return new DeepSeekAIProvider(process.env.DEEPSEEK_API_KEY ?? "", { baseUrl: process.env.DEEPSEEK_BASE_URL, model: process.env.DEEPSEEK_MODEL });
-  return getAIProvider();
-}
 
 function completeCreateFields(decision: AgentDirectorDecision) {
   if (decision.action !== "CREATE_MISSION") return null;
@@ -88,7 +83,7 @@ export async function runAgentDirectorTick(input: AgentDirectorInput, dependenci
   const previouslyTargeted = new Set(recentDirectorTargets.map((target) => target.accountId));
   const eligibleAccounts = eligibleRows.filter((account) => !previouslyTargeted.has(account.id)).slice(0, 10);
   const defaultTargetCriteria = { countries: (icp?.countries as string[] | undefined) ?? [], industries: (icp?.industries as string[] | undefined) ?? [], companyTypes: ["Industrial B2B company"], keywords: ["automation", "quality", "production"] };
-  const ai = dependencies.ai ?? providerForDirector();
+  const ai = dependencies.ai ?? await resolveWorkspaceAIProvider(input.workspaceId);
   const generated = await ai.generateStructured({
     operation: "agent-director",
     systemInstruction: buildOperationInstruction("agent-director"),

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAIProvider, missionTypeSchema } from "@navo/agents";
+import { missionTypeSchema } from "@navo/agents";
 import { DEMO_WORKSPACE_ID, getAccounts, getKnowledgeBase } from "@navo/db";
 import { planMission } from "@navo/workflows/mission-planner";
 import { apiError, requireDemoSession } from "@/lib/api";
 import { missionPlanProposal } from "../../../missions/_shared";
+import { resolveWorkspaceAIProvider } from "@/lib/ai-provider";
 
 const inputSchema = z.object({ command: z.string().trim().min(8).max(2_000), missionType: missionTypeSchema.optional() });
 
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return apiError("INVALID_COMMAND", "Tell Navo what outcome you want.", 422, parsed.error.flatten());
   try {
     const [knowledge, accounts] = await Promise.all([getKnowledgeBase(DEMO_WORKSPACE_ID), getAccounts(DEMO_WORKSPACE_ID)]);
-    const generated = await planMission(getAIProvider(), {
+    const generated = await planMission(await resolveWorkspaceAIProvider(DEMO_WORKSPACE_ID), {
       objective: parsed.data.command,
       missionType: parsed.data.missionType,
       sellerKnowledge: {
