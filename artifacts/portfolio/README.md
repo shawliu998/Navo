@@ -1,4 +1,4 @@
-# Navo · DeepSeek AGI Management Trainee Portfolio
+# Navo · DeepSeek AGI 管培生作品包
 
 This package presents Navo as an industrial B2B account-intelligence and
 outbound-orchestration workspace. The recruiter demo path is:
@@ -9,8 +9,8 @@ outbound-orchestration workspace. The recruiter demo path is:
 4. `04-reply-loop.png` — reply triage and next-best-action loop
 5. `05-analytics.png` — truthful current-workspace conversion, qualification, and
    source snapshot
-6. `social-preview-1280x640.png` — repository social preview built from the
-   actual Account Intelligence workspace
+6. `06-cross-screen-montage.png` — final desktop consistency review
+7. `07-responsive-montage.png` — 740px Inbox and Analytics evidence
 
 The product loop demonstrated across these screens is:
 
@@ -34,7 +34,7 @@ implementation and review; repository behavior and tests remained authoritative.
 
 - Lint: 7/7 tasks passed
 - Typecheck: 7/7 tasks passed
-- Tests: 198 passed, including 13 PostgreSQL integration tests
+- Tests: 185 passed; 13 configured integration tests skipped
 - E2E: 15/15 passed
 - Focused Inbox and Analytics browser checks: passed with zero console errors or warnings
 - Responsive evidence: 740px Inbox and Analytics layouts have no horizontal overflow
@@ -46,3 +46,4 @@ Capture notes:
 - Local mock provider used for reproducible UI state
 - No real email or external side effect
 - The separate DeepSeek V4 smoke result is documented in `docs/PORTFOLIO_EVALUATION.md`
+- Detailed cross-screen visual and interaction evidence is documented in `design-qa.md`

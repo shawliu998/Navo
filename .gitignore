@@ -17,3 +17,10 @@ test-results/
 # Local runtime data
 .data/
 uploads/
+
+# Local design and agent working evidence
+.codex-*/
+.impeccable/
+.playwright-mcp/
+AGENTS.md
+impeccable-*.png
