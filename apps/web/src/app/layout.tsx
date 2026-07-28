@@ -13,4 +13,4 @@ export const metadata: Metadata = {
     apple: [{ url: "/brand/navo-app-icon-512.png", sizes: "512x512", type: "image/png" }],
   },
 };
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) { return <html lang="en"><body>{children}</body></html>; }
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) { return <html lang="zh-CN"><body>{children}</body></html>; }

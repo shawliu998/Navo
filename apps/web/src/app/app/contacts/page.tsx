@@ -1,4 +1,30 @@
-import { Filter, Plus, Users } from "lucide-react";
+import { Plus } from "lucide-react";
 import { DEMO_WORKSPACE_ID, getContacts } from "@navo/db/queries";
-import { Button, PageHeader, StatusBadge } from "@navo/ui";
-export default async function ContactsPage(){const items=await getContacts(DEMO_WORKSPACE_ID);return <div className="page page-wide"><PageHeader eyebrow="GTM DATA" title="Contacts" description="One view of target roles, verification status, data provenance, and suppression." actions={<Button><Plus size={15}/>Add contact</Button>}/><div className="toolbar"><div className="input-wrap"><Users size={15}/><input className="input input-search" placeholder="Search contacts…"/></div><Button variant="secondary"><Filter size={15}/>Filter</Button></div><div className="table-shell"><table className="data-table"><thead><tr><th>Name</th><th>Account</th><th>Title</th><th>Persona</th><th>Email</th><th>Verification</th><th>Status</th><th>Source</th></tr></thead><tbody>{items.map(({contact,accountName})=><tr key={contact.id}><td><strong>{contact.name}</strong></td><td>{accountName}</td><td>{contact.title}</td><td>{contact.persona}</td><td>{contact.email}</td><td><StatusBadge status={contact.emailVerification}/></td><td><StatusBadge status={contact.suppressed?"SUPPRESSED":contact.status}/></td><td>{contact.source}</td></tr>)}</tbody></table></div></div>}
+import { Button, PageHeader } from "@navo/ui";
+import { ContactsTable, type ContactRow } from "@/components/contacts-table";
+
+export default async function ContactsPage() {
+  const items = await getContacts(DEMO_WORKSPACE_ID);
+  const rows: ContactRow[] = items.map(({ contact, accountName }) => ({
+    id: contact.id,
+    accountId: contact.accountId,
+    accountName,
+    name: contact.name,
+    title: contact.title,
+    persona: contact.persona,
+    email: contact.email,
+    emailVerification: contact.emailVerification,
+    status: contact.status,
+    source: contact.source,
+    suppressed: contact.suppressed,
+  }));
+  return <div className="page page-wide">
+    <PageHeader
+      eyebrow="GTM DATA"
+      title="Contacts"
+      description="目标角色、验证状态、数据来源与 Suppression 的统一视图。"
+      actions={<Button disabled title="Contact creation is driven by research and import in this Alpha."><Plus size={15} />添加联系人</Button>}
+    />
+    <ContactsTable rows={rows} />
+  </div>;
+}

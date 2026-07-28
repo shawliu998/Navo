@@ -100,8 +100,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="topbar-actions">
             <CommandMenu />
             <AgentNotificationCenter />
-            <Link className="topbar-avatar" aria-label="Workspace settings" href="/app/settings" title="Xiaolan Liu · Workspace Owner">
-              XL
+            <Link className="topbar-avatar" aria-label="Workspace settings" href="/app/settings" title="刘晓岚 · Workspace Owner">
+              刘
             </Link>
           </div>
         </header>
