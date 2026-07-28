@@ -1,5 +1,15 @@
 # Navo MVP Implementation Plan
 
+## Active UI priority override
+
+The current phase is **core product UI capability reproduction**, defined by `PRODUCT_UI_SCOPE.md`. For UI planning and execution, this section overrides the historical engineering phase list below.
+
+Current order: Account Detail → Mission Detail → Message / Approval Review → Reply Inbox → Analytics → Figma review → React implementation.
+
+Agents, Tool Status, audit/permission consoles, local-deployment messaging, production hardening and exhaustive edge-state matrices are deferred. Existing safety and backend boundaries remain unchanged, but they are not current feature priorities or visual themes.
+
+Before starting UI work, apply the scope gate in `AGENTS.md`. Backend inventory and historical MVP acceptance scenarios do not authorize adding or prioritizing a screen.
+
 ## Goal
 
 Deliver a runnable, database-backed account intelligence and outbound orchestration workspace for industrial exporters. Navo must demonstrate one controlled, observable loop from account intake and evidence-backed qualification through approval and sandboxed outreach, then from a simulated reply to classification, conversation summary, account memory, next best action, a manual follow-up task, CRM Mirror and analytics.

@@ -112,7 +112,7 @@ concurrent clicks return the same task rather than duplicate work.
 
 ## Local infrastructure and delivery safety
 
-Docker Compose exposes PostgreSQL on `54322` and Redis on `56379` to avoid common local port collisions. Outbound email always uses an in-memory/database EmailSink in the MVP. Reply, bounce, unsubscribe and complaint endpoints simulate provider webhooks and exercise the full domain flow; they do not send real email or call a real mailbox provider.
+Docker Compose exposes PostgreSQL on `55432` and Redis on `56379` by default to avoid common local port collisions; both host ports are configurable through `NAVO_POSTGRES_PORT` and `NAVO_REDIS_PORT`. Outbound email always uses an in-memory/database EmailSink in the MVP. Reply, bounce, unsubscribe and complaint endpoints simulate provider webhooks and exercise the full domain flow; they do not send real email or call a real mailbox provider.
 
 The Mock Mission runner currently does not persist measured provider usage or actual cost.
 Mission detail therefore renders actual cost as `Not measured`; plan estimates and configured
