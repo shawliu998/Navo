@@ -16,7 +16,11 @@ export const missionPlannerPrompt = buildOperationInstruction(
   "mission-plan",
   `Create a bounded plan with 4 to 12 dependency-linked steps. Use each registered type at most once and use only: ${missionStepTypeSchema.options.join(", ")}.
 Dependencies may reference earlier steps only. The final step must be SUMMARIZE_MISSION. CREATE_TARGET_ACCOUNT may replace SELECT_TARGET_ACCOUNTS only when a company name and website are explicitly supplied.
-OPPORTUNITY_DISCOVERY researches, qualifies and ranks accounts but does not require contacts, outreach or a task. OUTREACH_PREPARATION must generate an English DRAFT, create a task, update memory and summarize; DISCOVER_CONTACTS is optional. REPLY_FOLLOW_UP must use the supplied replyContext only, load that inbound reply, generate a reply DRAFT, create a task, update memory and summarize. The reply loop already owns classification and conversation summaries. Never add email sending.`,
+Use these exact executable orders:
+- OPPORTUNITY_DISCOVERY, ACCOUNT_RESEARCH and ACCOUNT_QUALIFICATION: LOAD_SELLER_KNOWLEDGE → exactly one target step → FETCH_WEBSITE → RESEARCH_COMPANY → EXTRACT_SIGNALS → QUALIFY_ACCOUNT → RANK_ACCOUNTS → UPDATE_MEMORY → SUMMARIZE_MISSION. Do not add contacts, outreach or a task.
+- OUTREACH_PREPARATION: LOAD_SELLER_KNOWLEDGE → exactly one target step → FETCH_WEBSITE → RESEARCH_COMPANY → EXTRACT_SIGNALS → QUALIFY_ACCOUNT → RANK_ACCOUNTS → optional DISCOVER_CONTACTS → GENERATE_OUTREACH → CREATE_TASK → UPDATE_MEMORY → SUMMARIZE_MISSION. The message must remain an English DRAFT.
+- REPLY_FOLLOW_UP: LOAD_REPLY_CONTEXT → GENERATE_REPLY_DRAFT → CREATE_TASK → UPDATE_MEMORY → SUMMARIZE_MISSION. Use only the supplied replyContext; the reply loop already owns classification and conversation summaries.
+Never add email sending.`,
 );
 
 export type MissionPlannerInput = {
@@ -155,7 +159,7 @@ export async function planMission(ai: AIProvider, input: MissionPlannerInput): P
       systemInstruction: missionPlannerPrompt,
       input: plannerInput,
       outputSchema: missionPlanSchema,
-      promptVersion: "mission-plan-v4",
+      promptVersion: "mission-plan-v5",
       temperature: 0.1,
       maxTokens: 2_400,
     });
@@ -165,10 +169,10 @@ export async function planMission(ai: AIProvider, input: MissionPlannerInput): P
       initialValidationError = cause instanceof Error ? cause.message : "Generated plan failed executable validation.";
       const repaired = await ai.generateStructured({
         operation: "mission-plan",
-        systemInstruction: buildOperationInstruction("mission-plan", `Repair the supplied plan so it passes every executable Mission rule. Preserve the objective and mission type. Do not explain the repair. ${missionPlannerPrompt}`),
+        systemInstruction: buildOperationInstruction("mission-plan", `Repair the supplied plan so it follows the exact required order below and passes every executable Mission rule. Preserve the objective and mission type, add every missing required step, rebuild dependencies in order, and do not explain the repair. ${missionPlannerPrompt}`),
         input: { ...plannerInput, previousPlan: generated.data, validationError: initialValidationError },
         outputSchema: missionPlanSchema,
-        promptVersion: "mission-plan-repair-v1",
+        promptVersion: "mission-plan-repair-v2",
         temperature: 0,
         maxTokens: 2_400,
       });

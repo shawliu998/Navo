@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { extractWebsiteHtml, selectPreferredWebsiteLinks } from "./extract";
+import { loadLocalWebsiteResearchFixture } from "./fixture";
 import { blockedAddressReason, validateWebsiteTarget, type ResolveHostname, type ValidatedTarget } from "./policy";
 import { fetchWebsiteResearch, type WebsiteResearchDependencies } from "./index";
 import { nodeHttpRequest, WebsiteResearchRequestError, type RawWebsiteRequest } from "./transport";
@@ -28,6 +29,15 @@ afterEach(async () => {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }));
+});
+
+describe("local website fixture", () => {
+  it("renders the selected synthetic account identity into every fixture page", async () => {
+    const result = await loadLocalWebsiteResearchFixture("acct-1", "https://rheinwerk-demo.example", fixedNow(), { accountName: "Rheinwerk Automation GmbH" });
+    const content = result.pages.map((page) => `${page.title}\n${page.text}`).join("\n");
+    expect(content).toContain("Rheinwerk Automation GmbH");
+    expect(content).not.toContain("Atlas Industrial Systems");
+  });
 });
 
 describe("website target policy", () => {

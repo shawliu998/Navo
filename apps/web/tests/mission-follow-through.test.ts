@@ -17,6 +17,22 @@ describe("completion brief", () => {
     expect(brief.findings).toContain("Hiring automation engineers");
   });
 
+  it("presents reply follow-up output without research-only controls", () => {
+    const brief = deriveCompletionBrief({
+      missionType: "REPLY_FOLLOW_UP",
+      status: "COMPLETED",
+      error: null,
+      result: { replyDraft: { classification: "QUESTION" } },
+      account: { id: "account-1", name: "Acme" },
+      evidence: [],
+      signals: [],
+      qualification: null,
+      message: { id: "message-1", subject: "Re: inspection workflow", status: "DRAFT" },
+    });
+    expect(brief).toMatchObject({ mode: "reply", state: "completed", qualified: null, evidenceCount: 0, draftSubject: "Re: inspection workflow" });
+    expect(brief.conclusion).toContain("Inbound reply processed");
+  });
+
   it("marks REVIEW as needs review and never treats Mock zero as measured cost", () => {
     const brief = deriveCompletionBrief({ status: "COMPLETED", error: null, result: {}, account: { id: "account-1", name: "Acme" }, evidence: [], signals: [], qualification: { score: 55, status: "REVIEW", risks: [] }, message: null });
     expect(brief).toMatchObject({ qualified: false, qualificationStatus: "REVIEW" });
