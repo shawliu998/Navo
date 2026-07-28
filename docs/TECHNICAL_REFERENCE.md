@@ -40,7 +40,7 @@ Rheinwerk account → source evidence → explainable qualification
 | Database integration | 13/13 passed against local PostgreSQL |
 | `pnpm build` | Next.js production build passed |
 | `pnpm e2e` | 15/15 Playwright scenarios passed from a clean seed |
-| `pnpm smoke:deepseek` | `plannerMode: AI`, no fallback, grounded account/evidence result |
+| `pnpm smoke:ai` | Workspace-selected real provider, `plannerMode: AI`, no fallback, grounded account/evidence result |
 
 The live V4 run initially exposed an entity-drift defect: the correct account ID was paired with an unrelated company name from a generic local fixture. Navo now renders fixtures for the selected account and treats persisted IDs, names and artifacts as authoritative when producing the final narrative. A regression test deliberately injects “Atlas Industrial Systems” and proves it cannot survive persistence.
 
@@ -144,22 +144,27 @@ code, provide multi-agent collaboration or claim production-grade security.
 - Redis and BullMQ
 - Vitest and Playwright
 
-## Mock and DeepSeek modes
+## Mock and workspace AI modes
 
 `AI_PROVIDER=mock` is the default deterministic mode. It needs no API key or model call, and
 seeded `.example` websites are read from repository-local HTML fixtures. It is used by tests.
 
-Set `AI_PROVIDER=deepseek`, `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` and `DEEPSEEK_MODEL` to
-use the existing server-only DeepSeek adapter. The default live model is `deepseek-v4-flash`;
+For normal use, open **Settings → AI connection**, save and test either DeepSeek or an
+OpenAI-compatible Chat Completions endpoint. Mission planning and worker execution resolve that
+tested workspace connection. `AI_PROVIDER=deepseek`, `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` and
+`DEEPSEEK_MODEL` remain a server-only fallback for existing local environments. The default live model is `deepseek-v4-flash`;
 structured operations explicitly use non-thinking mode for predictable JSON contracts. Planner, checkpoint, research, signal,
 qualification, ranking, draft and summary outputs all pass through Zod, and the adapter sends
 the requested JSON Schema with every structured call. Planner, company-research and outreach
-contracts have live DeepSeek smoke coverage; a complete paid-provider end-to-end run is not
-part of the deterministic test suite. Linear next-step selection is handled in code to avoid
-an unnecessary model call for every mission step. After seeding local demo data, run a paid live
-opportunity-discovery smoke test with `pnpm smoke:deepseek`; it creates and executes one Mission
-and prints its ID, planner mode, outcome and summary. Set `DEEPSEEK_SMOKE_CHAIN=1` to also exercise
-the real continuation decision, successor planning and successor execution.
+contracts and a complete opportunity-discovery Mission have live provider smoke coverage; this
+paid, non-deterministic check is intentionally outside the deterministic test suite. Linear
+next-step selection is handled in code to avoid an unnecessary model call for every mission step.
+After seeding local demo data and testing the workspace connection, run `pnpm smoke:ai`; it creates
+and executes one Mission and prints its ID, provider, model, planner mode, outcome and summary.
+`pnpm smoke:deepseek` remains as a compatibility alias. Set `DEEPSEEK_SMOKE_CHAIN=1` to also exercise
+the real continuation decision, successor planning and successor execution. The release smoke
+verified both the discovery and outreach-preparation Missions at 100% with `plannerMode: AI`, no
+planner fallback, and exactly one persisted `DRAFT`; no email was sent.
 
 Website content is untrusted input. Research applies SSRF, response-size, page-size,
 redirect and bounded-page limits; evidence quotes must be literal excerpts from fetched

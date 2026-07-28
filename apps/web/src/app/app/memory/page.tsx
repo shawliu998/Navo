@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BrainCircuit, CheckCircle2, Clock3, Database, Package, ShieldCheck, Target } from "lucide-react";
 import { DEMO_WORKSPACE_ID, getAgentMemory } from "@navo/db/queries";
 import { Badge, MetricCard, PageHeader } from "@navo/ui";
+import { NavoBrand } from "@/components/navo-brand";
 
 export const metadata = { title: "Memory" };
 
@@ -13,7 +14,7 @@ export default async function MemoryPage() {
   const highConfidence = data.facts.filter(({ memory }) => Number(memory.confidence) >= .8).length;
 
   return <div className="page">
-    <PageHeader eyebrow="PERSISTENT CONTEXT" title="Memory" description="Source-backed Account Facts from Missions and conversations, kept separate from execution-control state."/>
+    <PageHeader eyebrow="PERSISTENT CONTEXT" title="Memory" description="Source-linked account facts created by Missions or conversations, kept separate from runtime control state."/>
     <section className="metrics-grid">
       <MetricCard label="Active facts" value={data.facts.length} helper={`Across ${accountCount} accounts`} icon={<BrainCircuit size={14}/>}/>
       <MetricCard label="High confidence" value={highConfidence} helper="Confidence ≥ 80%" icon={<CheckCircle2 size={14}/>}/>
@@ -29,7 +30,7 @@ export default async function MemoryPage() {
             <Badge tone={Number(memory.confidence) >= .8 ? "success" : "warning"}>{Math.round(Number(memory.confidence) * 100)}%</Badge>
           </div>)}
         </article>)}
-        {data.facts.length === 0 && <div className="empty-state"><BrainCircuit/><strong>No active memory yet</strong><p>Verified facts from Reply Intelligence will appear here.</p></div>}
+        {data.facts.length === 0 && <div className="empty-state"><NavoBrand mode="mark" className="empty-state-brand-mark"/><strong>No active memory yet</strong><p>Verified facts from Reply Intelligence will appear here.</p></div>}
       </div>
       <aside className="stack">
         <section className="card"><div className="card-header"><div><h2>Loaded knowledge</h2><span className="card-subtitle">Workspace context available to the agent</span></div><Database size={16}/></div>
@@ -37,7 +38,7 @@ export default async function MemoryPage() {
           <div className="guardrail-item"><small>ICP profiles</small><strong>{data.knowledge.icpProfiles.length}</strong><div className="toolbar-group" style={{marginTop: 7, flexWrap: "wrap"}}>{data.knowledge.icpProfiles.map((profile) => <Badge tone="neutral" key={profile.id}><Target size={11}/>{profile.name}</Badge>)}</div></div>
           <div className="guardrail-item"><small>Approved claims</small><strong>{data.knowledge.approvedClaims.length}</strong><p className="muted">Only approved claims are loaded for controlled generation.</p></div>
         </section>
-        <div className="alert alert-info"><ShieldCheck size={16}/><span>Memory Facts retain sourceType, sourceId, evidenceIds, and confidence. Mission facts are never presented as message evidence.</span></div>
+        <div className="alert alert-info"><ShieldCheck size={16}/><span>Every memory fact retains its source type, source ID, evidence links, and confidence. Mission facts are never presented as message-sourced evidence.</span></div>
       </aside>
     </section>
   </div>;

@@ -4,6 +4,7 @@ import { Inbox, Loader2, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { AgentNotification } from "@/lib/agent-notifications";
+import { NavoBrand } from "@/components/navo-brand";
 
 type NotificationsPayload = {
   data?: AgentNotification[];
@@ -79,7 +80,7 @@ export function AgentNotificationCenter() {
         <button className="icon-button" type="button" aria-label="Close notifications" onClick={() => setOpen(false)}>×</button>
       </header>
       <div className="notification-list" aria-live="polite">
-        {loading && notifications.length === 0 ? <div className="notification-empty"><Loader2 className="spin" size={17}/><span>Loading activity…</span></div> : notifications.length === 0 ? <div className="notification-empty"><Inbox size={18}/><strong>No recent agent notifications</strong><span>Mission results and operator actions will appear here.</span></div> : notifications.map((notification) => <Link key={notification.id} href={notification.href} className={`notification-item notification-${notification.severity.toLowerCase()}`} onClick={() => setOpen(false)}>
+        {loading && notifications.length === 0 ? <div className="notification-empty"><Loader2 className="spin" size={17}/><span>Loading activity…</span></div> : notifications.length === 0 ? <div className="notification-empty"><NavoBrand mode="mark" className="empty-state-brand-mark"/><strong>No recent agent notifications</strong><span>Mission results and operator actions will appear here.</span></div> : notifications.map((notification) => <Link key={notification.id} href={notification.href} className={`notification-item notification-${notification.severity.toLowerCase()}`} onClick={() => setOpen(false)}>
           <span className="notification-item-marker" aria-hidden="true">{notification.severity === "ERROR" ? <TriangleAlert size={13}/> : ""}</span>
           <span className="notification-item-copy"><strong>{notification.title}</strong><span>{notification.detail}</span><small>{relativeTime(notification.occurredAt)}</small></span>
         </Link>)}

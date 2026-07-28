@@ -432,15 +432,30 @@ export class MockAIProvider implements AIProvider {
   }
 }
 
-export class DeepSeekAIProvider implements AIProvider {
+export type ConfiguredAIProvider = {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  provider: "deepseek" | "openai-compatible";
+};
+
+export class OpenAICompatibleAIProvider implements AIProvider {
   readonly model: string;
   readonly baseUrl: string;
+  readonly provider: string;
 
-  constructor(private readonly apiKey: string, options?: { model?: string; baseUrl?: string }) {
-    if (!apiKey) throw new Error("DEEPSEEK_API_KEY is required for the DeepSeek provider.");
-    this.model = options?.model ?? "deepseek-v4-flash";
-    this.baseUrl = (options?.baseUrl ?? "https://api.deepseek.com").replace(/\/$/, "");
+  constructor(
+    private readonly apiKey: string,
+    options: { model: string; baseUrl: string; provider?: string; requestBody?: Record<string, unknown> },
+  ) {
+    if (!apiKey) throw new Error("An API key is required for the configured AI provider.");
+    this.model = options.model;
+    this.baseUrl = options.baseUrl.replace(/\/$/, "");
+    this.provider = options.provider ?? "openai-compatible";
+    this.requestBody = options.requestBody ?? {};
   }
+
+  private readonly requestBody: Record<string, unknown>;
 
   async generateStructured<T>(request: StructuredGenerationRequest<T>): Promise<StructuredGenerationResult<T>> {
     const started = Date.now();
@@ -457,7 +472,7 @@ export class DeepSeekAIProvider implements AIProvider {
           signal: controller.signal,
           body: JSON.stringify({
             model: this.model,
-            thinking: { type: "disabled" },
+            ...this.requestBody,
             temperature: request.temperature ?? 0.2,
             max_tokens: request.maxTokens ?? 1400,
             response_format: { type: "json_object" },
@@ -470,10 +485,10 @@ export class DeepSeekAIProvider implements AIProvider {
             ],
           }),
         });
-        if (!response.ok) throw new Error(`DeepSeek request failed with status ${response.status}.`);
+        if (!response.ok) throw new Error(`${this.provider} request failed with status ${response.status}.`);
         const payload = await response.json() as { id?: string; choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
         const raw = payload.choices?.[0]?.message?.content;
-        if (!raw) throw new Error("DeepSeek returned no structured content.");
+        if (!raw) throw new Error(`${this.provider} returned no structured content.`);
         const parsed = request.outputSchema.safeParse(JSON.parse(raw));
         if (!parsed.success) {
           lastError = parsed.error;
@@ -496,7 +511,7 @@ export class DeepSeekAIProvider implements AIProvider {
           correction = `The previous JSON failed required output validation: ${postValidation.errors.slice(0, 4).join("; ")}. Correct these fields.${messageLengthRepair}`;
           continue;
         }
-        return { data: normalizedData, provider: "deepseek", model: this.model, inputTokens: payload.usage?.prompt_tokens ?? 0, outputTokens: payload.usage?.completion_tokens ?? 0, latencyMs: Date.now() - started, estimatedCost: 0, requestId: payload.id };
+        return { data: normalizedData, provider: this.provider, model: this.model, inputTokens: payload.usage?.prompt_tokens ?? 0, outputTokens: payload.usage?.completion_tokens ?? 0, latencyMs: Date.now() - started, estimatedCost: 0, requestId: payload.id };
       } catch (error) {
         lastError = error;
         correction = "The previous response was not valid JSON or could not be processed. Return only a JSON object matching the requested schema.";
@@ -507,6 +522,29 @@ export class DeepSeekAIProvider implements AIProvider {
     const message = lastError instanceof Error ? lastError.message : "Unknown structured-output error";
     throw new Error(`AI_STRUCTURED_GENERATION_FAILED: ${request.operation} failed after 2 attempts: ${message}`);
   }
+}
+
+export class DeepSeekAIProvider extends OpenAICompatibleAIProvider {
+  constructor(apiKey: string, options?: { model?: string; baseUrl?: string }) {
+    if (!apiKey) throw new Error("DEEPSEEK_API_KEY is required for the DeepSeek provider.");
+    super(apiKey, {
+      provider: "deepseek",
+      model: options?.model ?? "deepseek-v4-flash",
+      baseUrl: options?.baseUrl ?? "https://api.deepseek.com",
+      requestBody: { thinking: { type: "disabled" } },
+    });
+  }
+}
+
+export function createConfiguredAIProvider(connection: ConfiguredAIProvider): AIProvider {
+  if (connection.provider === "deepseek") {
+    return new DeepSeekAIProvider(connection.apiKey, { baseUrl: connection.baseUrl, model: connection.model });
+  }
+  return new OpenAICompatibleAIProvider(connection.apiKey, {
+    provider: "openai-compatible",
+    baseUrl: connection.baseUrl,
+    model: connection.model,
+  });
 }
 
 export function getAIProvider(): AIProvider {

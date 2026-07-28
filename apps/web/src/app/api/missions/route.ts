@@ -1,4 +1,3 @@
-import { getAIProvider } from "@navo/agents";
 import { accounts, createMission, db, DEMO_WORKSPACE_ID, failMissionQueue, getMissions, prepareMissionStart } from "@navo/db";
 import { and, eq } from "drizzle-orm";
 import { planMission } from "@navo/workflows/mission-planner";
@@ -8,6 +7,7 @@ import { enqueueMission } from "@/lib/mission-queue";
 import { guardMissionAccount } from "@/lib/mission-command";
 import { mockMissionPreviewSchema } from "@/lib/mission-preview";
 import { DEMO_USER_ID, missionInputSchema } from "./_shared";
+import { resolveWorkspaceAIProvider } from "@/lib/ai-provider";
 
 export async function GET() {
   if (!await requireDemoSession()) return apiError("UNAUTHENTICATED", "Login required.", 401);
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     if (preview && !preview.success) return apiError("INVALID_MISSION_PREVIEW", "Mission preview must be the schema-validated Mock plan shown to the operator.", 422, preview.error.flatten());
     const generated = parsed.data.plan
       ? { data: preview!.data.plan, provider: preview!.data.provider, model: preview!.data.model, plannerMode: preview!.data.plannerMode, fallbackReason: preview!.data.fallbackReason ?? undefined }
-      : await planMission(getAIProvider(), { name: parsed.data.name, objective: parsed.data.objective, targetDescription: "Autonomously select and compare matching accounts in the demo workspace." });
+      : await planMission(await resolveWorkspaceAIProvider(DEMO_WORKSPACE_ID), { name: parsed.data.name, objective: parsed.data.objective, targetDescription: "Autonomously select and compare matching accounts in the demo workspace." });
     const shouldStart = parsed.data.status === "ACTIVE" || parsed.data.status === "RUNNING";
     const mission = await createMission(DEMO_WORKSPACE_ID, DEMO_USER_ID, { ...parsed.data, targetAccountId: accountGuard?.ok ? accountGuard.accountId : undefined, status: shouldStart ? "READY" : parsed.data.status, targetCount: parsed.data.targetCount ?? 0, maximumAccounts: parsed.data.maximumAccounts ?? 3, maximumIterations: parsed.data.maximumIterations ?? 20, operatingMode: "AUTONOMOUS", plan: generated.data, provider: generated.provider, model: generated.model, plannerMode: generated.plannerMode, plannerFallbackReason: generated.fallbackReason, dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : undefined });
     let responseMission = mission;

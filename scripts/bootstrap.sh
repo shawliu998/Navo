@@ -22,6 +22,23 @@ if [[ ! -f .env.local ]]; then
 else
   echo "[ok] Preserving existing .env.local."
 fi
+
+if ! grep -Eq '^NAVO_ENCRYPTION_KEY=[0-9a-fA-F]{64}$' .env.local; then
+  node - <<'NODE'
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = ".env.local";
+const value = crypto.randomBytes(32).toString("hex");
+let contents = fs.readFileSync(path, "utf8");
+if (/^NAVO_ENCRYPTION_KEY=.*$/m.test(contents)) {
+  contents = contents.replace(/^NAVO_ENCRYPTION_KEY=.*$/m, `NAVO_ENCRYPTION_KEY=${value}`);
+} else {
+  contents = `${contents.replace(/\s*$/, "")}\nNAVO_ENCRYPTION_KEY=${value}\n`;
+}
+fs.writeFileSync(path, contents);
+NODE
+  echo "[ok] Generated the local credential-encryption key."
+fi
 navo_load_local_env
 
 echo "==> Installing workspace dependencies"
@@ -63,5 +80,5 @@ bash scripts/doctor.sh
 
 echo
 echo "Bootstrap complete. Start the deterministic golden path with: pnpm run dev:mock"
-echo "Use 'pnpm dev' when you want the AI_PROVIDER configured in .env.local."
+echo "For a real model, run 'pnpm dev', open Settings, save a DeepSeek or OpenAI-compatible key, and test the connection."
 echo "Then open http://localhost:3100 and run: pnpm run health"

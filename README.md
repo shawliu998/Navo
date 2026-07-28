@@ -1,16 +1,11 @@
 <h1 align="center">Navo</h1>
 
 <p align="center">
-  <strong>Turn account evidence into verified decisions and owned next actions.</strong>
+  <strong>Turn account evidence into qualified opportunities, reviewed outreach, and owned next actions.</strong>
 </p>
 
 <p align="center">
-  An account-intelligence and outbound-orchestration workspace for industrial B2B teams,
-  built around durable Missions rather than chat sessions.
-</p>
-
-<p align="center">
-  <a href="docs/PROJECT_STORY.zh-CN.md">Project story (ZH)</a> ·
+  <a href="docs/PROJECT_STORY.zh-CN.md">中文项目说明</a> ·
   <a href="docs/DEMO_SCRIPT.md">Demo script</a> ·
   <a href="docs/PORTFOLIO_EVALUATION.md">Evaluation</a> ·
   <a href="ARCHITECTURE.md">Architecture</a> ·
@@ -27,9 +22,11 @@
 
 ---
 
-## What Navo does
+## What is this, really?
 
-Navo starts with a target account, gathers source-backed evidence, separates facts from inference,
+Navo is an account-intelligence and outbound-orchestration workspace for industrial B2B teams.
+
+It starts with a target account, gathers source-backed evidence, separates facts from inference,
 qualifies the opportunity, prepares a message for human review, and turns the reply into an owned
 next action. The interface is built around that operating loop—not around a chatbot.
 
@@ -37,16 +34,6 @@ next action. The interface is built around that operating loop—not around a ch
 Accounts → Signals / Evidence → Research → Qualification → Contacts
 → Mission / Play → Message / Sequence → Replies → Next Best Action
 ```
-
-### How a Mission runs
-
-```text
-Observe → Plan → Execute → Verify → Decide → Learn → Continue
-```
-
-A Mission carries its goal, plan, execution state, evidence, decisions, and outcomes. Navo
-executes bounded work, preserves evidence, and surfaces the next action that moves an account
-forward. Operators keep control of every external action.
 
 In practice, Navo feels like a compact sales operations workspace. Underneath, it is a bounded
 execution system: model output is structured, evidence is traceable, workflow state is durable,
@@ -130,10 +117,10 @@ boundary.
 | Reply handling | Classification, summary, commitments, linked next action and task |
 | Analytics | Current conversion, qualification mix, source performance |
 | Reliability | Durable state, idempotency, immutable attempt history, deterministic fallback |
-| Provider path | Deterministic mock mode plus a DeepSeek structured-output smoke path |
+| Provider path | Deterministic mock mode plus workspace-scoped DeepSeek and OpenAI-compatible connections |
 
-This repository does not claim real outbound email, production CRM mutation, arbitrary code
-execution, or production-grade security. Those are deliberate boundaries, not hidden gaps.
+This repository does not claim production CRM mutation, arbitrary code execution, or
+production-grade security. Those are deliberate boundaries, not hidden gaps.
 
 ---
 
@@ -151,7 +138,19 @@ pnpm run dev:mock
 Open `http://localhost:3100`, choose **DACH industrial outreach**, and follow the prepared demo
 path. `dev:mock` uses deterministic local fixtures and does not require an API key.
 
-For the full environment and provider configuration, see the
+To run a Mission with a real model:
+
+1. Start the normal runtime with `pnpm dev`.
+2. Open **Settings → AI runtime**.
+3. Choose **DeepSeek** or **OpenAI-compatible**, then enter the base URL, model, and API key.
+4. Save the configuration and run **Test connection**. The key is encrypted before storage and is
+   never returned to the browser.
+5. Create a Mission. Web planning and worker execution now resolve the connected provider for the
+   active workspace; Mock remains the fallback when no connection is active.
+
+`pnpm run bootstrap` generates the local credential-encryption key and `pnpm run doctor` verifies
+the install. `pnpm smoke:ai` runs one paid, end-to-end opportunity Mission with the tested workspace
+connection and prints only non-secret acceptance evidence. For the full environment reference, see
 [technical reference](docs/TECHNICAL_REFERENCE.md).
 
 ---
@@ -162,7 +161,8 @@ For the full environment and provider configuration, see the
 | --- | --- |
 | Lint | 7/7 workspace tasks passed |
 | Typecheck | 7/7 workspace tasks passed |
-| Tests | 198 passed, including 13 PostgreSQL integration tests |
+| Tests | 192 passed; 13 configured integration tests skipped |
+| Live provider smoke | DeepSeek discovery → outreach continuation completed with both plans in `AI` mode, no fallback, and one `DRAFT` |
 | Product E2E | 15/15 Playwright scenarios passed |
 | Focused UI checks | Inbox and Analytics passed with zero console errors or warnings |
 | Final cross-screen QA | No P0/P1/P2 blockers found across Account, Mission, Approval, Inbox, and Analytics |
@@ -197,4 +197,4 @@ artifacts       Recruiter-facing screenshots and packaged portfolio
 - Not a claim that every visible capability is production-ready.
 
 What it is: a concrete study in turning uncertain model output into observable, bounded, and
-testable business behavior through a Mission-centered operating loop.
+testable business behavior.
