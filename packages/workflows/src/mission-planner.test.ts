@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { MockAIProvider, type AIProvider, type MissionPlan } from "@navo/agents";
-import { planMission } from "./mission-planner";
+import { missionPlannerPrompt, planMission } from "./mission-planner";
 
 describe("mission planner", () => {
+  it("states every executable outreach step explicitly for real model planning and repair", () => {
+    expect(missionPlannerPrompt).toContain("OUTREACH_PREPARATION");
+    expect(missionPlannerPrompt).toContain("QUALIFY_ACCOUNT → RANK_ACCOUNTS → optional DISCOVER_CONTACTS → GENERATE_OUTREACH");
+    expect(missionPlannerPrompt).toContain("The message must remain an English DRAFT.");
+  });
+
   it("uses the AI provider and returns the executable schema-validated plan", async () => {
     const result = await planMission(new MockAIProvider(), { objective: "Research one German manufacturer and prepare a safe outreach draft.", missionType: "OUTREACH_PREPARATION" });
     expect(result.provider).toBe("mock-ai");
