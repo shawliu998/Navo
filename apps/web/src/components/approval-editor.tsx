@@ -91,7 +91,7 @@ export function ApprovalEditor({ approvalId, subject, body, status, contactName,
 
       <section className="approval-decision-section approval-log">
         <span className="approval-field-label">Decision log</span>
-        <div><small>{pending ? "Now · Navo proposed this action" : reviewedLabel}</small><strong>{pending ? "Awaiting decision from 刘晓岚" : `${statusLabel} by ${reviewerName ?? "workspace reviewer"}`}</strong></div>
+        <div><small>{pending ? "Now · Navo proposed this action" : reviewedLabel}</small><strong>{pending ? "Awaiting decision from Xiaolan Liu" : `${statusLabel} by ${reviewerName ?? "workspace reviewer"}`}</strong></div>
       </section>
 
       {error ? <p className="approval-error" role="alert">{error}</p> : null}

@@ -23,7 +23,7 @@ export default async function IntegrationsPage() {
       <PageHeader
         eyebrow="RUNTIME TOOLS"
         title="Tool Status"
-        description="Navo 可在 Mission 中调用的已配置适配器。状态、权限和最后活动直接来自工作区连接记录。"
+        description="Configured adapters available to Missions. Status, permissions, and recent activity come directly from workspace connection records."
       />
 
       <section className="metrics-grid tool-status-metrics" aria-label="Tool status summary">
@@ -70,7 +70,7 @@ export default async function IntegrationsPage() {
                 <div className="tool-field">
                   <span>Last activity</span>
                   {tool.lastSyncAt ? (
-                    <time dateTime={tool.lastSyncAt.toISOString()}>{tool.lastSyncAt.toLocaleString("zh-CN")}</time>
+                    <time dateTime={tool.lastSyncAt.toISOString()}>{tool.lastSyncAt.toLocaleString("en-US")}</time>
                   ) : (
                     <strong>No activity recorded</strong>
                   )}
@@ -92,7 +92,7 @@ export default async function IntegrationsPage() {
 
       <div className="alert alert-info tool-status-note">
         <ShieldCheck size={16} />
-        <span>本页仅展示数据库中已注册的工具；不对未连接的外部服务做可用性承诺。</span>
+        <span>This inventory reports registered workspace tools only; it does not claim availability for services that are not connected.</span>
       </div>
     </div>
   );

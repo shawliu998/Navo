@@ -22,8 +22,8 @@ export default async function ContactsPage() {
     <PageHeader
       eyebrow="GTM DATA"
       title="Contacts"
-      description="目标角色、验证状态、数据来源与 Suppression 的统一视图。"
-      actions={<Button disabled title="Contact creation is driven by research and import in this Alpha."><Plus size={15} />添加联系人</Button>}
+      description="A unified view of target personas, verification, sources, and suppression."
+      actions={<Button disabled title="Contact creation is driven by research and import in this Alpha."><Plus size={15} />Add contact</Button>}
     />
     <ContactsTable rows={rows} />
   </div>;
