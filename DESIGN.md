@@ -59,11 +59,11 @@ Navo uses a light, dense working canvas with a graphite navigation shell, compac
 
 ## Evidence language
 
-Verified fact, external signal, AI inference, human decision and needs-confirmation items use explicit text labels and source metadata; icons are optional and never the only differentiator. During the active UI reproduction phase, design default, empty and blocking error states. Add other edge states only when they are required to understand or operate the primary workflow.
+Verified fact, external signal, AI inference, human decision and needs-confirmation items use explicit text labels and source metadata; icons are optional and never the only differentiator. Default, empty and blocking error states are required. Add other edge states only when they are required to understand or operate the primary workflow.
 
 ## Active-phase exclusions
 
-Do not prioritize Agents, Tool Status, audit, local deployment or infrastructure screens. Do not turn safety constraints into page themes or repeated callouts. Do not add dark heroes, card matrices, decorative AI icons, pill collections or borders around every content group. See `PRODUCT_UI_SCOPE.md` for the active page order.
+Do not prioritize Agents, Tool Status, audit, local deployment or infrastructure screens. Do not turn safety constraints into page themes or repeated callouts. Do not add dark heroes, card matrices, decorative AI icons, pill collections or borders around every content group. Product priority follows the primary operator workflow defined in `PRODUCT.md`.
 
 ## Responsive and accessibility rules
 

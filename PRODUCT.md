@@ -36,5 +36,3 @@ Every account uses five stable sections:
 - Activity
 
 The application is a dense desktop-first B2B product, not a marketing site and not a chat-first interface. Existing APIs, database structures, workflow states and outbound safety boundaries are product constraints.
-
-The active UI scope and page priority are defined in `PRODUCT_UI_SCOPE.md`.
