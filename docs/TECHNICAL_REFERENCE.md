@@ -256,4 +256,5 @@ been migrated and seeded, the web server is available on port 3100, and the work
 running for Mission execution. Playwright writes ignored reports/screenshots on failure;
 review `git status` before committing.
 
-See [PLAN.md](../PLAN.md), [ARCHITECTURE.md](../ARCHITECTURE.md) and [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for delivery scope, system boundaries and dependency notices.
+See [ARCHITECTURE.md](../ARCHITECTURE.md) and
+[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for system boundaries and dependency notices.
