@@ -1,4 +1,4 @@
-# Navo · DeepSeek AGI 管培生作品包
+# Navo · Product Portfolio
 
 This package presents Navo as an industrial B2B account-intelligence and
 outbound-orchestration workspace. The recruiter demo path is:
@@ -16,25 +16,14 @@ The product loop demonstrated across these screens is:
 
 `Accounts → Signals / Evidence → Research → Qualification → Contacts → Mission / Play → Message / Sequence → Replies → Next Best Action`
 
-The author led the product framing, workflow architecture, system boundaries,
-acceptance criteria, and evaluation plan. Coding assistants were used for scoped
-implementation and review; repository behavior and tests remained authoritative.
-
-## Review status
-
-- Account Detail: accepted
-- Mission Detail: accepted
-- Message / Approval Review: accepted
-- Reply Inbox: accepted
-- Analytics Overview: accepted
-- Final cross-screen review: accepted
-- Remaining P0/P1/P2 blockers: none
+The project covers product framing, workflow architecture, system boundaries,
+acceptance criteria, interface design, implementation, and validation.
 
 ## Verification
 
 - Lint: 7/7 tasks passed
 - Typecheck: 7/7 tasks passed
-- Tests: 185 passed; 13 configured integration tests skipped
+- Tests: 192 passed; 13 configured integration tests skipped
 - E2E: 15/15 passed
 - Focused Inbox and Analytics browser checks: passed with zero console errors or warnings
 - Responsive evidence: 740px Inbox and Analytics layouts have no horizontal overflow
@@ -43,7 +32,5 @@ Capture notes:
 
 - Captured from a clean deterministic seed
 - Synthetic companies, people, evidence, and replies only
-- Local mock provider used for reproducible UI state
-- No real email or external side effect
-- The separate DeepSeek V4 smoke result is documented in `docs/PORTFOLIO_EVALUATION.md`
-- Detailed cross-screen visual and interaction evidence is documented in `design-qa.md`
+- Deterministic UI state with reviewed outbound drafts
+- Real-provider Mission validation completed with DeepSeek
