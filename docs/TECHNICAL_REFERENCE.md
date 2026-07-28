@@ -42,9 +42,13 @@ Rheinwerk account → source evidence → explainable qualification
 | `pnpm e2e` | 15/15 Playwright scenarios passed from a clean seed |
 | `pnpm smoke:ai` | Workspace-selected real provider, `plannerMode: AI`, no fallback, grounded account/evidence result |
 
-The live V4 run initially exposed an entity-drift defect: the correct account ID was paired with an unrelated company name from a generic local fixture. Navo now renders fixtures for the selected account and treats persisted IDs, names and artifacts as authoritative when producing the final narrative. A regression test deliberately injects “Atlas Industrial Systems” and proves it cannot survive persistence.
+The live V4 validation covers entity consistency across the selected account, generated fixtures,
+persistence, and the final narrative. Navo renders fixtures for the selected account and treats
+persisted IDs, names, and artifacts as authoritative. A regression test injects a mismatched
+company name and verifies that persistence retains the selected account identity.
 
-For the concise review path, read [the 3–5 minute demo script](DEMO_SCRIPT.md) and [the evaluation report](PORTFOLIO_EVALUATION.md).
+For the concise review path, read the [3–5 minute demo script](DEMO_SCRIPT.md) and the
+[project story](PROJECT_STORY.zh-CN.md).
 
 ## Autonomous Mission flow
 

@@ -7,7 +7,6 @@
 <p align="center">
   <a href="docs/PROJECT_STORY.zh-CN.md">中文项目说明</a> ·
   <a href="docs/DEMO_SCRIPT.md">Demo script</a> ·
-  <a href="docs/PORTFOLIO_EVALUATION.md">Evaluation</a> ·
   <a href="ARCHITECTURE.md">Architecture</a> ·
   <a href="docs/TECHNICAL_REFERENCE.md">Technical reference</a>
 </p>
@@ -22,46 +21,45 @@
 
 ---
 
-## What is this, really?
+## Navo in one workflow
 
 Navo is an account-intelligence and outbound-orchestration workspace for industrial B2B teams.
 
 It starts with a target account, gathers source-backed evidence, separates facts from inference,
 qualifies the opportunity, prepares a message for human review, and turns the reply into an owned
-next action. The interface is built around that operating loop—not around a chatbot.
+next action. The workspace keeps that operating loop visible from the first account review to the
+next owned action.
 
 ```text
 Accounts → Signals / Evidence → Research → Qualification → Contacts
 → Mission / Play → Message / Sequence → Replies → Next Best Action
 ```
 
-In practice, Navo feels like a compact sales operations workspace. Underneath, it is a bounded
-execution system: model output is structured, evidence is traceable, workflow state is durable,
-and external action stops at a human checkpoint.
+Model output is structured, evidence is traceable, workflow state is durable, and external action
+stops at a human checkpoint.
 
 ---
 
-## What I designed
+## Product and system decisions
 
-The main work was deciding how the system should behave before deciding how many features it
-should have.
+The product is organized around one operator journey, with each layer assigned a clear
+responsibility.
 
-- **Product framing** — narrowed the product from a generic “AI sales platform” to one operator
-  loop with a clear beginning, decision points, and outcome.
+- **Product scope** — centers the primary experience on one operator loop with a clear beginning,
+  decision points, and outcome.
 - **Workflow architecture** — defined which steps belong to deterministic code, which decisions
   can use a model, and where execution must stop for review.
 - **Evidence model** — separated source facts, external signals, qualification, recommendations,
   and human decisions so each claim has a visible origin.
-- **Failure boundaries** — added iteration, account, continuation, idempotency, and outbound-action
-  limits instead of treating a successful happy path as sufficient.
-- **Evaluation strategy** — designed deterministic tests, browser coverage, a real-provider smoke
-  path, and regression cases around entity drift and unsupported narration.
-- **Product interface** — adapted mature account, mission, approval, inbox, and analytics patterns
-  into one dense workspace without turning infrastructure into the product.
+- **Execution controls** — enforces iteration, account, continuation, idempotency, and
+  outbound-action limits.
+- **Validation coverage** — combines deterministic tests, browser coverage, a real-provider smoke
+  path, and regression cases for entity consistency and evidence grounding.
+- **Interface system** — keeps account, mission, approval, inbox, and analytics work consistent
+  across one dense workspace.
 
 I led the product definition, system planning, task decomposition, acceptance criteria, and
-trade-off decisions. Coding assistants were used as implementation and review tools inside that
-plan; repository facts, working behavior, and tests remained the source of truth.
+trade-off decisions across product, workflow, data, model integration, and validation.
 
 ---
 
@@ -80,7 +78,7 @@ plan; repository facts, working behavior, and tests remained the source of truth
 | Current workspace analytics |
 | --- |
 | ![Current conversion, qualification mix, and source performance](artifacts/portfolio/05-analytics.png) |
-| Only current query-backed values are shown; synthetic trends and decorative filters were removed. |
+| Current query-backed values show conversion, qualification mix, and source performance. |
 
 ---
 
@@ -118,9 +116,6 @@ boundary.
 | Analytics | Current conversion, qualification mix, source performance |
 | Reliability | Durable state, idempotency, immutable attempt history, deterministic fallback |
 | Provider path | Deterministic mock mode plus workspace-scoped DeepSeek and OpenAI-compatible connections |
-
-This repository does not claim production CRM mutation, arbitrary code execution, or
-production-grade security. Those are deliberate boundaries, not hidden gaps.
 
 ---
 
@@ -165,11 +160,11 @@ connection and prints only non-secret acceptance evidence. For the full environm
 | Live provider smoke | DeepSeek discovery → outreach continuation completed with both plans in `AI` mode, no fallback, and one `DRAFT` |
 | Product E2E | 15/15 Playwright scenarios passed |
 | Focused UI checks | Inbox and Analytics passed with zero console errors or warnings |
-| Final cross-screen QA | No P0/P1/P2 blockers found across Account, Mission, Approval, Inbox, and Analytics |
+| Core workspace QA | Account, Mission, Approval, Inbox, and Analytics flows verified |
 
-The most useful review path is the
-[3–5 minute demo](docs/DEMO_SCRIPT.md). The longer reasoning and test record lives in the
-[portfolio evaluation](docs/PORTFOLIO_EVALUATION.md).
+The most useful review path is the [3–5 minute demo](docs/DEMO_SCRIPT.md). Validation commands,
+runtime contracts, and environment details are in the
+[technical reference](docs/TECHNICAL_REFERENCE.md).
 
 ---
 
@@ -182,19 +177,6 @@ packages/agents Structured model adapter and agent contracts
 packages/domain Business rules and workflow types
 packages/db     PostgreSQL schema and queries
 packages/workflows Research, signals, qualification, and drafting
-docs            Demo, evaluation, and technical reference
-artifacts       Recruiter-facing screenshots and packaged portfolio
+docs            Demo, product story, and technical reference
+artifacts       Product screenshots and packaged release material
 ```
-
----
-
-## What it is not
-
-- Not a chat interface with sales screens attached.
-- Not an autonomous sender that bypasses review.
-- Not a generic CRM replacement.
-- Not an agent observability or infrastructure console.
-- Not a claim that every visible capability is production-ready.
-
-What it is: a concrete study in turning uncertain model output into observable, bounded, and
-testable business behavior.
